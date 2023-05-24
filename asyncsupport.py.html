@@ -1,0 +1,285 @@
+<html>
+<head>
+<title>asyncsupport.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #8c8c8c; font-style: italic;}
+.s1 { color: #080808;}
+.s2 { color: #0033b3;}
+.s3 { color: #1750eb;}
+.s4 { color: #067d17;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+asyncsupport.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># -*- coding: utf-8 -*-</span>
+<span class="s0">&quot;&quot;&quot;The code for async support. Importing this patches Jinja on supported 
+Python versions. 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">asyncio</span>
+<span class="s2">import </span><span class="s1">inspect</span>
+<span class="s2">from </span><span class="s1">functools </span><span class="s2">import </span><span class="s1">update_wrapper</span>
+
+<span class="s2">from </span><span class="s1">markupsafe </span><span class="s2">import </span><span class="s1">Markup</span>
+
+<span class="s2">from </span><span class="s1">.environment </span><span class="s2">import </span><span class="s1">TemplateModule</span>
+<span class="s2">from </span><span class="s1">.runtime </span><span class="s2">import </span><span class="s1">LoopContext</span>
+<span class="s2">from </span><span class="s1">.utils </span><span class="s2">import </span><span class="s1">concat</span>
+<span class="s2">from </span><span class="s1">.utils </span><span class="s2">import </span><span class="s1">internalcode</span>
+<span class="s2">from </span><span class="s1">.utils </span><span class="s2">import </span><span class="s1">missing</span>
+
+
+<span class="s2">async def </span><span class="s1">concat_async(async_gen):</span>
+    <span class="s1">rv = []</span>
+
+    <span class="s2">async def </span><span class="s1">collect():</span>
+        <span class="s2">async for </span><span class="s1">event </span><span class="s2">in </span><span class="s1">async_gen:</span>
+            <span class="s1">rv.append(event)</span>
+
+    <span class="s2">await </span><span class="s1">collect()</span>
+    <span class="s2">return </span><span class="s1">concat(rv)</span>
+
+
+<span class="s2">async def </span><span class="s1">generate_async(self, *args, **kwargs):</span>
+    <span class="s1">vars = dict(*args, **kwargs)</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">async for </span><span class="s1">event </span><span class="s2">in </span><span class="s1">self.root_render_func(self.new_context(vars)):</span>
+            <span class="s2">yield </span><span class="s1">event</span>
+    <span class="s2">except </span><span class="s1">Exception:</span>
+        <span class="s2">yield </span><span class="s1">self.environment.handle_exception()</span>
+
+
+<span class="s2">def </span><span class="s1">wrap_generate_func(original_generate):</span>
+    <span class="s2">def </span><span class="s1">_convert_generator(self, loop, args, kwargs):</span>
+        <span class="s1">async_gen = self.generate_async(*args, **kwargs)</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s2">while </span><span class="s3">1</span><span class="s1">:</span>
+                <span class="s2">yield </span><span class="s1">loop.run_until_complete(async_gen.__anext__())</span>
+        <span class="s2">except </span><span class="s1">StopAsyncIteration:</span>
+            <span class="s2">pass</span>
+
+    <span class="s2">def </span><span class="s1">generate(self, *args, **kwargs):</span>
+        <span class="s2">if not </span><span class="s1">self.environment.is_async:</span>
+            <span class="s2">return </span><span class="s1">original_generate(self, *args, **kwargs)</span>
+        <span class="s2">return </span><span class="s1">_convert_generator(self, asyncio.get_event_loop(), args, kwargs)</span>
+
+    <span class="s2">return </span><span class="s1">update_wrapper(generate, original_generate)</span>
+
+
+<span class="s2">async def </span><span class="s1">render_async(self, *args, **kwargs):</span>
+    <span class="s2">if not </span><span class="s1">self.environment.is_async:</span>
+        <span class="s2">raise </span><span class="s1">RuntimeError(</span><span class="s4">&quot;The environment was not created with async mode enabled.&quot;</span><span class="s1">)</span>
+
+    <span class="s1">vars = dict(*args, **kwargs)</span>
+    <span class="s1">ctx = self.new_context(vars)</span>
+
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">return await </span><span class="s1">concat_async(self.root_render_func(ctx))</span>
+    <span class="s2">except </span><span class="s1">Exception:</span>
+        <span class="s2">return </span><span class="s1">self.environment.handle_exception()</span>
+
+
+<span class="s2">def </span><span class="s1">wrap_render_func(original_render):</span>
+    <span class="s2">def </span><span class="s1">render(self, *args, **kwargs):</span>
+        <span class="s2">if not </span><span class="s1">self.environment.is_async:</span>
+            <span class="s2">return </span><span class="s1">original_render(self, *args, **kwargs)</span>
+        <span class="s1">loop = asyncio.get_event_loop()</span>
+        <span class="s2">return </span><span class="s1">loop.run_until_complete(self.render_async(*args, **kwargs))</span>
+
+    <span class="s2">return </span><span class="s1">update_wrapper(render, original_render)</span>
+
+
+<span class="s2">def </span><span class="s1">wrap_block_reference_call(original_call):</span>
+    <span class="s1">@internalcode</span>
+    <span class="s2">async def </span><span class="s1">async_call(self):</span>
+        <span class="s1">rv = </span><span class="s2">await </span><span class="s1">concat_async(self._stack[self._depth](self._context))</span>
+        <span class="s2">if </span><span class="s1">self._context.eval_ctx.autoescape:</span>
+            <span class="s1">rv = Markup(rv)</span>
+        <span class="s2">return </span><span class="s1">rv</span>
+
+    <span class="s1">@internalcode</span>
+    <span class="s2">def </span><span class="s1">__call__(self):</span>
+        <span class="s2">if not </span><span class="s1">self._context.environment.is_async:</span>
+            <span class="s2">return </span><span class="s1">original_call(self)</span>
+        <span class="s2">return </span><span class="s1">async_call(self)</span>
+
+    <span class="s2">return </span><span class="s1">update_wrapper(__call__, original_call)</span>
+
+
+<span class="s2">def </span><span class="s1">wrap_macro_invoke(original_invoke):</span>
+    <span class="s1">@internalcode</span>
+    <span class="s2">async def </span><span class="s1">async_invoke(self, arguments, autoescape):</span>
+        <span class="s1">rv = </span><span class="s2">await </span><span class="s1">self._func(*arguments)</span>
+        <span class="s2">if </span><span class="s1">autoescape:</span>
+            <span class="s1">rv = Markup(rv)</span>
+        <span class="s2">return </span><span class="s1">rv</span>
+
+    <span class="s1">@internalcode</span>
+    <span class="s2">def </span><span class="s1">_invoke(self, arguments, autoescape):</span>
+        <span class="s2">if not </span><span class="s1">self._environment.is_async:</span>
+            <span class="s2">return </span><span class="s1">original_invoke(self, arguments, autoescape)</span>
+        <span class="s2">return </span><span class="s1">async_invoke(self, arguments, autoescape)</span>
+
+    <span class="s2">return </span><span class="s1">update_wrapper(_invoke, original_invoke)</span>
+
+
+<span class="s1">@internalcode</span>
+<span class="s2">async def </span><span class="s1">get_default_module_async(self):</span>
+    <span class="s2">if </span><span class="s1">self._module </span><span class="s2">is not None</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">self._module</span>
+    <span class="s1">self._module = rv = </span><span class="s2">await </span><span class="s1">self.make_module_async()</span>
+    <span class="s2">return </span><span class="s1">rv</span>
+
+
+<span class="s2">def </span><span class="s1">wrap_default_module(original_default_module):</span>
+    <span class="s1">@internalcode</span>
+    <span class="s2">def </span><span class="s1">_get_default_module(self):</span>
+        <span class="s2">if </span><span class="s1">self.environment.is_async:</span>
+            <span class="s2">raise </span><span class="s1">RuntimeError(</span><span class="s4">&quot;Template module attribute is unavailable in async mode&quot;</span><span class="s1">)</span>
+        <span class="s2">return </span><span class="s1">original_default_module(self)</span>
+
+    <span class="s2">return </span><span class="s1">_get_default_module</span>
+
+
+<span class="s2">async def </span><span class="s1">make_module_async(self, vars=</span><span class="s2">None</span><span class="s1">, shared=</span><span class="s2">False</span><span class="s1">, locals=</span><span class="s2">None</span><span class="s1">):</span>
+    <span class="s1">context = self.new_context(vars, shared, locals)</span>
+    <span class="s1">body_stream = []</span>
+    <span class="s2">async for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">self.root_render_func(context):</span>
+        <span class="s1">body_stream.append(item)</span>
+    <span class="s2">return </span><span class="s1">TemplateModule(self, context, body_stream)</span>
+
+
+<span class="s2">def </span><span class="s1">patch_template():</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">Template</span>
+
+    <span class="s1">Template.generate = wrap_generate_func(Template.generate)</span>
+    <span class="s1">Template.generate_async = update_wrapper(generate_async, Template.generate_async)</span>
+    <span class="s1">Template.render_async = update_wrapper(render_async, Template.render_async)</span>
+    <span class="s1">Template.render = wrap_render_func(Template.render)</span>
+    <span class="s1">Template._get_default_module = wrap_default_module(Template._get_default_module)</span>
+    <span class="s1">Template._get_default_module_async = get_default_module_async</span>
+    <span class="s1">Template.make_module_async = update_wrapper(</span>
+        <span class="s1">make_module_async, Template.make_module_async</span>
+    <span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">patch_runtime():</span>
+    <span class="s2">from </span><span class="s1">.runtime </span><span class="s2">import </span><span class="s1">BlockReference, Macro</span>
+
+    <span class="s1">BlockReference.__call__ = wrap_block_reference_call(BlockReference.__call__)</span>
+    <span class="s1">Macro._invoke = wrap_macro_invoke(Macro._invoke)</span>
+
+
+<span class="s2">def </span><span class="s1">patch_filters():</span>
+    <span class="s2">from </span><span class="s1">.filters </span><span class="s2">import </span><span class="s1">FILTERS</span>
+    <span class="s2">from </span><span class="s1">.asyncfilters </span><span class="s2">import </span><span class="s1">ASYNC_FILTERS</span>
+
+    <span class="s1">FILTERS.update(ASYNC_FILTERS)</span>
+
+
+<span class="s2">def </span><span class="s1">patch_all():</span>
+    <span class="s1">patch_template()</span>
+    <span class="s1">patch_runtime()</span>
+    <span class="s1">patch_filters()</span>
+
+
+<span class="s2">async def </span><span class="s1">auto_await(value):</span>
+    <span class="s2">if </span><span class="s1">inspect.isawaitable(value):</span>
+        <span class="s2">return await </span><span class="s1">value</span>
+    <span class="s2">return </span><span class="s1">value</span>
+
+
+<span class="s2">async def </span><span class="s1">auto_aiter(iterable):</span>
+    <span class="s2">if </span><span class="s1">hasattr(iterable, </span><span class="s4">&quot;__aiter__&quot;</span><span class="s1">):</span>
+        <span class="s2">async for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">iterable:</span>
+            <span class="s2">yield </span><span class="s1">item</span>
+        <span class="s2">return</span>
+    <span class="s2">for </span><span class="s1">item </span><span class="s2">in </span><span class="s1">iterable:</span>
+        <span class="s2">yield </span><span class="s1">item</span>
+
+
+<span class="s2">class </span><span class="s1">AsyncLoopContext(LoopContext):</span>
+    <span class="s1">_to_iterator = staticmethod(auto_aiter)</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">async def </span><span class="s1">length(self):</span>
+        <span class="s2">if </span><span class="s1">self._length </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">self._length</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">self._length = len(self._iterable)</span>
+        <span class="s2">except </span><span class="s1">TypeError:</span>
+            <span class="s1">iterable = [x </span><span class="s2">async for </span><span class="s1">x </span><span class="s2">in </span><span class="s1">self._iterator]</span>
+            <span class="s1">self._iterator = self._to_iterator(iterable)</span>
+            <span class="s1">self._length = len(iterable) + self.index + (self._after </span><span class="s2">is not </span><span class="s1">missing)</span>
+
+        <span class="s2">return </span><span class="s1">self._length</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">async def </span><span class="s1">revindex0(self):</span>
+        <span class="s2">return await </span><span class="s1">self.length - self.index</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">async def </span><span class="s1">revindex(self):</span>
+        <span class="s2">return await </span><span class="s1">self.length - self.index0</span>
+
+    <span class="s2">async def </span><span class="s1">_peek_next(self):</span>
+        <span class="s2">if </span><span class="s1">self._after </span><span class="s2">is not </span><span class="s1">missing:</span>
+            <span class="s2">return </span><span class="s1">self._after</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">self._after = </span><span class="s2">await </span><span class="s1">self._iterator.__anext__()</span>
+        <span class="s2">except </span><span class="s1">StopAsyncIteration:</span>
+            <span class="s1">self._after = missing</span>
+
+        <span class="s2">return </span><span class="s1">self._after</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">async def </span><span class="s1">last(self):</span>
+        <span class="s2">return await </span><span class="s1">self._peek_next() </span><span class="s2">is </span><span class="s1">missing</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">async def </span><span class="s1">nextitem(self):</span>
+        <span class="s1">rv = </span><span class="s2">await </span><span class="s1">self._peek_next()</span>
+
+        <span class="s2">if </span><span class="s1">rv </span><span class="s2">is </span><span class="s1">missing:</span>
+            <span class="s2">return </span><span class="s1">self._undefined(</span><span class="s4">&quot;there is no next item&quot;</span><span class="s1">)</span>
+
+        <span class="s2">return </span><span class="s1">rv</span>
+
+    <span class="s2">def </span><span class="s1">__aiter__(self):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">async def </span><span class="s1">__anext__(self):</span>
+        <span class="s2">if </span><span class="s1">self._after </span><span class="s2">is not </span><span class="s1">missing:</span>
+            <span class="s1">rv = self._after</span>
+            <span class="s1">self._after = missing</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">rv = </span><span class="s2">await </span><span class="s1">self._iterator.__anext__()</span>
+
+        <span class="s1">self.index0 += </span><span class="s3">1</span>
+        <span class="s1">self._before = self._current</span>
+        <span class="s1">self._current = rv</span>
+        <span class="s2">return </span><span class="s1">rv, self</span>
+
+
+<span class="s2">async def </span><span class="s1">make_async_loop_context(iterable, undefined, recurse=</span><span class="s2">None</span><span class="s1">, depth0=</span><span class="s3">0</span><span class="s1">):</span>
+    <span class="s2">import </span><span class="s1">warnings</span>
+
+    <span class="s1">warnings.warn(</span>
+        <span class="s4">&quot;This template must be recompiled with at least Jinja 2.11, or&quot;</span>
+        <span class="s4">&quot; it will fail in 3.0.&quot;</span><span class="s1">,</span>
+        <span class="s1">DeprecationWarning,</span>
+        <span class="s1">stacklevel=</span><span class="s3">2</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s2">return </span><span class="s1">AsyncLoopContext(iterable, undefined, recurse, depth0)</span>
+
+
+<span class="s1">patch_all()</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<html>
+<head>
+<title>_internal.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #8c8c8c; font-style: italic;}
+.s1 { color: #080808;}
+.s2 { color: #0033b3;}
+.s3 { color: #1750eb;}
+.s4 { color: #067d17;}
+.s5 { color: #8a822d;}
+.s6 { color: #0037a6;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_internal.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># -*- coding: utf-8 -*-</span>
+<span class="s0">&quot;&quot;&quot; 
+    werkzeug._internal 
+    ~~~~~~~~~~~~~~~~~~ 
+ 
+    This module provides internally used helpers and constants. 
+ 
+    :copyright: 2007 Pallets 
+    :license: BSD-3-Clause 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">inspect</span>
+<span class="s2">import </span><span class="s1">logging</span>
+<span class="s2">import </span><span class="s1">re</span>
+<span class="s2">import </span><span class="s1">string</span>
+<span class="s2">from </span><span class="s1">datetime </span><span class="s2">import </span><span class="s1">date</span>
+<span class="s2">from </span><span class="s1">datetime </span><span class="s2">import </span><span class="s1">datetime</span>
+<span class="s2">from </span><span class="s1">itertools </span><span class="s2">import </span><span class="s1">chain</span>
+<span class="s2">from </span><span class="s1">weakref </span><span class="s2">import </span><span class="s1">WeakKeyDictionary</span>
+
+<span class="s2">from </span><span class="s1">._compat </span><span class="s2">import </span><span class="s1">int_to_byte</span>
+<span class="s2">from </span><span class="s1">._compat </span><span class="s2">import </span><span class="s1">integer_types</span>
+<span class="s2">from </span><span class="s1">._compat </span><span class="s2">import </span><span class="s1">iter_bytes</span>
+<span class="s2">from </span><span class="s1">._compat </span><span class="s2">import </span><span class="s1">range_type</span>
+<span class="s2">from </span><span class="s1">._compat </span><span class="s2">import </span><span class="s1">text_type</span>
+
+
+<span class="s1">_logger = </span><span class="s2">None</span>
+<span class="s1">_signature_cache = WeakKeyDictionary()</span>
+<span class="s1">_epoch_ord = date(</span><span class="s3">1970</span><span class="s1">, </span><span class="s3">1</span><span class="s1">, </span><span class="s3">1</span><span class="s1">).toordinal()</span>
+<span class="s1">_legal_cookie_chars = (</span>
+    <span class="s1">string.ascii_letters + string.digits + </span><span class="s4">u&quot;/=!#$%&amp;'*+-.^_`|~:&quot;</span>
+<span class="s1">).encode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">)</span>
+
+<span class="s1">_cookie_quoting_map = {</span><span class="s5">b&quot;,&quot;</span><span class="s1">: </span><span class="s5">b&quot;</span><span class="s6">\\</span><span class="s5">054&quot;</span><span class="s1">, </span><span class="s5">b&quot;;&quot;</span><span class="s1">: </span><span class="s5">b&quot;</span><span class="s6">\\</span><span class="s5">073&quot;</span><span class="s1">, </span><span class="s5">b'&quot;'</span><span class="s1">: </span><span class="s5">b'</span><span class="s6">\\</span><span class="s5">&quot;'</span><span class="s1">, </span><span class="s5">b&quot;</span><span class="s6">\\</span><span class="s5">&quot;</span><span class="s1">: </span><span class="s5">b&quot;</span><span class="s6">\\\\</span><span class="s5">&quot;</span><span class="s1">}</span>
+<span class="s2">for </span><span class="s1">_i </span><span class="s2">in </span><span class="s1">chain(range_type(</span><span class="s3">32</span><span class="s1">), range_type(</span><span class="s3">127</span><span class="s1">, </span><span class="s3">256</span><span class="s1">)):</span>
+    <span class="s1">_cookie_quoting_map[int_to_byte(_i)] = (</span><span class="s4">&quot;</span><span class="s6">\\</span><span class="s4">%03o&quot; </span><span class="s1">% _i).encode(</span><span class="s4">&quot;latin1&quot;</span><span class="s1">)</span>
+
+<span class="s1">_octal_re = re.compile(</span><span class="s5">br&quot;\\[0-3][0-7][0-7]&quot;</span><span class="s1">)</span>
+<span class="s1">_quote_re = re.compile(</span><span class="s5">br&quot;[\\].&quot;</span><span class="s1">)</span>
+<span class="s1">_legal_cookie_chars_re = </span><span class="s5">br&quot;[\w\d!#%&amp;\'~_`&gt;&lt;@,:/\$\*\+\-\.\^\|\)\(\?\}\{\=]&quot;</span>
+<span class="s1">_cookie_re = re.compile(</span>
+    <span class="s5">br&quot;&quot;&quot; 
+    (?P&lt;key&gt;[^=;]+) 
+    (?:\s*=\s* 
+        (?P&lt;val&gt; 
+            &quot;(?:[^\\&quot;]|\\.)*&quot; | 
+             (?:.*?) 
+        ) 
+    )? 
+    \s*; 
+&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">flags=re.VERBOSE,</span>
+<span class="s1">)</span>
+
+
+<span class="s2">class </span><span class="s1">_Missing(object):</span>
+    <span class="s2">def </span><span class="s1">__repr__(self):</span>
+        <span class="s2">return </span><span class="s4">&quot;no value&quot;</span>
+
+    <span class="s2">def </span><span class="s1">__reduce__(self):</span>
+        <span class="s2">return </span><span class="s4">&quot;_missing&quot;</span>
+
+
+<span class="s1">_missing = _Missing()</span>
+
+
+<span class="s2">def </span><span class="s1">_get_environ(obj):</span>
+    <span class="s1">env = getattr(obj, </span><span class="s4">&quot;environ&quot;</span><span class="s1">, obj)</span>
+    <span class="s2">assert </span><span class="s1">isinstance(env, dict), (</span>
+        <span class="s4">&quot;%r is not a WSGI environment (has to be a dict)&quot; </span><span class="s1">% type(obj).__name__</span>
+    <span class="s1">)</span>
+    <span class="s2">return </span><span class="s1">env</span>
+
+
+<span class="s2">def </span><span class="s1">_has_level_handler(logger):</span>
+    <span class="s0">&quot;&quot;&quot;Check if there is a handler in the logging chain that will handle 
+    the given logger's effective level. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">level = logger.getEffectiveLevel()</span>
+    <span class="s1">current = logger</span>
+
+    <span class="s2">while </span><span class="s1">current:</span>
+        <span class="s2">if </span><span class="s1">any(handler.level &lt;= level </span><span class="s2">for </span><span class="s1">handler </span><span class="s2">in </span><span class="s1">current.handlers):</span>
+            <span class="s2">return True</span>
+
+        <span class="s2">if not </span><span class="s1">current.propagate:</span>
+            <span class="s2">break</span>
+
+        <span class="s1">current = current.parent</span>
+
+    <span class="s2">return False</span>
+
+
+<span class="s2">def </span><span class="s1">_log(type, message, *args, **kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Log a message to the 'werkzeug' logger. 
+ 
+    The logger is created the first time it is needed. If there is no 
+    level set, it is set to :data:`logging.INFO`. If there is no handler 
+    for the logger's effective level, a :class:`logging.StreamHandler` 
+    is added. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">global </span><span class="s1">_logger</span>
+
+    <span class="s2">if </span><span class="s1">_logger </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s1">_logger = logging.getLogger(</span><span class="s4">&quot;werkzeug&quot;</span><span class="s1">)</span>
+
+        <span class="s2">if </span><span class="s1">_logger.level == logging.NOTSET:</span>
+            <span class="s1">_logger.setLevel(logging.INFO)</span>
+
+        <span class="s2">if not </span><span class="s1">_has_level_handler(_logger):</span>
+            <span class="s1">_logger.addHandler(logging.StreamHandler())</span>
+
+    <span class="s1">getattr(_logger, type)(message.rstrip(), *args, **kwargs)</span>
+
+
+<span class="s2">def </span><span class="s1">_parse_signature(func):</span>
+    <span class="s0">&quot;&quot;&quot;Return a signature object for the function.&quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">hasattr(func, </span><span class="s4">&quot;im_func&quot;</span><span class="s1">):</span>
+        <span class="s1">func = func.im_func</span>
+
+    <span class="s0"># if we have a cached validator for this function, return it</span>
+    <span class="s1">parse = _signature_cache.get(func)</span>
+    <span class="s2">if </span><span class="s1">parse </span><span class="s2">is not None</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">parse</span>
+
+    <span class="s0"># inspect the function signature and collect all the information</span>
+    <span class="s2">if </span><span class="s1">hasattr(inspect, </span><span class="s4">&quot;getfullargspec&quot;</span><span class="s1">):</span>
+        <span class="s1">tup = inspect.getfullargspec(func)</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">tup = inspect.getargspec(func)</span>
+    <span class="s1">positional, vararg_var, kwarg_var, defaults = tup[:</span><span class="s3">4</span><span class="s1">]</span>
+    <span class="s1">defaults = defaults </span><span class="s2">or </span><span class="s1">()</span>
+    <span class="s1">arg_count = len(positional)</span>
+    <span class="s1">arguments = []</span>
+    <span class="s2">for </span><span class="s1">idx, name </span><span class="s2">in </span><span class="s1">enumerate(positional):</span>
+        <span class="s2">if </span><span class="s1">isinstance(name, list):</span>
+            <span class="s2">raise </span><span class="s1">TypeError(</span>
+                <span class="s4">&quot;cannot parse functions that unpack tuples in the function signature&quot;</span>
+            <span class="s1">)</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">default = defaults[idx - arg_count]</span>
+        <span class="s2">except </span><span class="s1">IndexError:</span>
+            <span class="s1">param = (name, </span><span class="s2">False</span><span class="s1">, </span><span class="s2">None</span><span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">param = (name, </span><span class="s2">True</span><span class="s1">, default)</span>
+        <span class="s1">arguments.append(param)</span>
+    <span class="s1">arguments = tuple(arguments)</span>
+
+    <span class="s2">def </span><span class="s1">parse(args, kwargs):</span>
+        <span class="s1">new_args = []</span>
+        <span class="s1">missing = []</span>
+        <span class="s1">extra = {}</span>
+
+        <span class="s0"># consume as many arguments as positional as possible</span>
+        <span class="s2">for </span><span class="s1">idx, (name, has_default, default) </span><span class="s2">in </span><span class="s1">enumerate(arguments):</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">new_args.append(args[idx])</span>
+            <span class="s2">except </span><span class="s1">IndexError:</span>
+                <span class="s2">try</span><span class="s1">:</span>
+                    <span class="s1">new_args.append(kwargs.pop(name))</span>
+                <span class="s2">except </span><span class="s1">KeyError:</span>
+                    <span class="s2">if </span><span class="s1">has_default:</span>
+                        <span class="s1">new_args.append(default)</span>
+                    <span class="s2">else</span><span class="s1">:</span>
+                        <span class="s1">missing.append(name)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s2">if </span><span class="s1">name </span><span class="s2">in </span><span class="s1">kwargs:</span>
+                    <span class="s1">extra[name] = kwargs.pop(name)</span>
+
+        <span class="s0"># handle extra arguments</span>
+        <span class="s1">extra_positional = args[arg_count:]</span>
+        <span class="s2">if </span><span class="s1">vararg_var </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">new_args.extend(extra_positional)</span>
+            <span class="s1">extra_positional = ()</span>
+        <span class="s2">if </span><span class="s1">kwargs </span><span class="s2">and </span><span class="s1">kwarg_var </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">extra.update(kwargs)</span>
+            <span class="s1">kwargs = {}</span>
+
+        <span class="s2">return </span><span class="s1">(</span>
+            <span class="s1">new_args,</span>
+            <span class="s1">kwargs,</span>
+            <span class="s1">missing,</span>
+            <span class="s1">extra,</span>
+            <span class="s1">extra_positional,</span>
+            <span class="s1">arguments,</span>
+            <span class="s1">vararg_var,</span>
+            <span class="s1">kwarg_var,</span>
+        <span class="s1">)</span>
+
+    <span class="s1">_signature_cache[func] = parse</span>
+    <span class="s2">return </span><span class="s1">parse</span>
+
+
+<span class="s2">def </span><span class="s1">_date_to_unix(arg):</span>
+    <span class="s0">&quot;&quot;&quot;Converts a timetuple, integer or datetime object into the seconds from 
+    epoch in utc. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">isinstance(arg, datetime):</span>
+        <span class="s1">arg = arg.utctimetuple()</span>
+    <span class="s2">elif </span><span class="s1">isinstance(arg, integer_types + (float,)):</span>
+        <span class="s2">return </span><span class="s1">int(arg)</span>
+    <span class="s1">year, month, day, hour, minute, second = arg[:</span><span class="s3">6</span><span class="s1">]</span>
+    <span class="s1">days = date(year, month, </span><span class="s3">1</span><span class="s1">).toordinal() - _epoch_ord + day - </span><span class="s3">1</span>
+    <span class="s1">hours = days * </span><span class="s3">24 </span><span class="s1">+ hour</span>
+    <span class="s1">minutes = hours * </span><span class="s3">60 </span><span class="s1">+ minute</span>
+    <span class="s1">seconds = minutes * </span><span class="s3">60 </span><span class="s1">+ second</span>
+    <span class="s2">return </span><span class="s1">seconds</span>
+
+
+<span class="s2">class </span><span class="s1">_DictAccessorProperty(object):</span>
+    <span class="s0">&quot;&quot;&quot;Baseclass for `environ_property` and `header_property`.&quot;&quot;&quot;</span>
+
+    <span class="s1">read_only = </span><span class="s2">False</span>
+
+    <span class="s2">def </span><span class="s1">__init__(</span>
+        <span class="s1">self,</span>
+        <span class="s1">name,</span>
+        <span class="s1">default=</span><span class="s2">None</span><span class="s1">,</span>
+        <span class="s1">load_func=</span><span class="s2">None</span><span class="s1">,</span>
+        <span class="s1">dump_func=</span><span class="s2">None</span><span class="s1">,</span>
+        <span class="s1">read_only=</span><span class="s2">None</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s2">None</span><span class="s1">,</span>
+    <span class="s1">):</span>
+        <span class="s1">self.name = name</span>
+        <span class="s1">self.default = default</span>
+        <span class="s1">self.load_func = load_func</span>
+        <span class="s1">self.dump_func = dump_func</span>
+        <span class="s2">if </span><span class="s1">read_only </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">self.read_only = read_only</span>
+        <span class="s1">self.__doc__ = doc</span>
+
+    <span class="s2">def </span><span class="s1">__get__(self, obj, type=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s2">if </span><span class="s1">obj </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">self</span>
+        <span class="s1">storage = self.lookup(obj)</span>
+        <span class="s2">if </span><span class="s1">self.name </span><span class="s2">not in </span><span class="s1">storage:</span>
+            <span class="s2">return </span><span class="s1">self.default</span>
+        <span class="s1">rv = storage[self.name]</span>
+        <span class="s2">if </span><span class="s1">self.load_func </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">rv = self.load_func(rv)</span>
+            <span class="s2">except </span><span class="s1">(ValueError, TypeError):</span>
+                <span class="s1">rv = self.default</span>
+        <span class="s2">return </span><span class="s1">rv</span>
+
+    <span class="s2">def </span><span class="s1">__set__(self, obj, value):</span>
+        <span class="s2">if </span><span class="s1">self.read_only:</span>
+            <span class="s2">raise </span><span class="s1">AttributeError(</span><span class="s4">&quot;read only property&quot;</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">self.dump_func </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">value = self.dump_func(value)</span>
+        <span class="s1">self.lookup(obj)[self.name] = value</span>
+
+    <span class="s2">def </span><span class="s1">__delete__(self, obj):</span>
+        <span class="s2">if </span><span class="s1">self.read_only:</span>
+            <span class="s2">raise </span><span class="s1">AttributeError(</span><span class="s4">&quot;read only property&quot;</span><span class="s1">)</span>
+        <span class="s1">self.lookup(obj).pop(self.name, </span><span class="s2">None</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">__repr__(self):</span>
+        <span class="s2">return </span><span class="s4">&quot;&lt;%s %s&gt;&quot; </span><span class="s1">% (self.__class__.__name__, self.name)</span>
+
+
+<span class="s2">def </span><span class="s1">_cookie_quote(b):</span>
+    <span class="s1">buf = bytearray()</span>
+    <span class="s1">all_legal = </span><span class="s2">True</span>
+    <span class="s1">_lookup = _cookie_quoting_map.get</span>
+    <span class="s1">_push = buf.extend</span>
+
+    <span class="s2">for </span><span class="s1">char </span><span class="s2">in </span><span class="s1">iter_bytes(b):</span>
+        <span class="s2">if </span><span class="s1">char </span><span class="s2">not in </span><span class="s1">_legal_cookie_chars:</span>
+            <span class="s1">all_legal = </span><span class="s2">False</span>
+            <span class="s1">char = _lookup(char, char)</span>
+        <span class="s1">_push(char)</span>
+
+    <span class="s2">if </span><span class="s1">all_legal:</span>
+        <span class="s2">return </span><span class="s1">bytes(buf)</span>
+    <span class="s2">return </span><span class="s1">bytes(</span><span class="s5">b'&quot;' </span><span class="s1">+ buf + </span><span class="s5">b'&quot;'</span><span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">_cookie_unquote(b):</span>
+    <span class="s2">if </span><span class="s1">len(b) &lt; </span><span class="s3">2</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">b</span>
+    <span class="s2">if </span><span class="s1">b[:</span><span class="s3">1</span><span class="s1">] != </span><span class="s5">b'&quot;' </span><span class="s2">or </span><span class="s1">b[-</span><span class="s3">1</span><span class="s1">:] != </span><span class="s5">b'&quot;'</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">b</span>
+
+    <span class="s1">b = b[</span><span class="s3">1</span><span class="s1">:-</span><span class="s3">1</span><span class="s1">]</span>
+
+    <span class="s1">i = </span><span class="s3">0</span>
+    <span class="s1">n = len(b)</span>
+    <span class="s1">rv = bytearray()</span>
+    <span class="s1">_push = rv.extend</span>
+
+    <span class="s2">while </span><span class="s3">0 </span><span class="s1">&lt;= i &lt; n:</span>
+        <span class="s1">o_match = _octal_re.search(b, i)</span>
+        <span class="s1">q_match = _quote_re.search(b, i)</span>
+        <span class="s2">if not </span><span class="s1">o_match </span><span class="s2">and not </span><span class="s1">q_match:</span>
+            <span class="s1">rv.extend(b[i:])</span>
+            <span class="s2">break</span>
+        <span class="s1">j = k = -</span><span class="s3">1</span>
+        <span class="s2">if </span><span class="s1">o_match:</span>
+            <span class="s1">j = o_match.start(</span><span class="s3">0</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">q_match:</span>
+            <span class="s1">k = q_match.start(</span><span class="s3">0</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">q_match </span><span class="s2">and </span><span class="s1">(</span><span class="s2">not </span><span class="s1">o_match </span><span class="s2">or </span><span class="s1">k &lt; j):</span>
+            <span class="s1">_push(b[i:k])</span>
+            <span class="s1">_push(b[k + </span><span class="s3">1 </span><span class="s1">: k + </span><span class="s3">2</span><span class="s1">])</span>
+            <span class="s1">i = k + </span><span class="s3">2</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">_push(b[i:j])</span>
+            <span class="s1">rv.append(int(b[j + </span><span class="s3">1 </span><span class="s1">: j + </span><span class="s3">4</span><span class="s1">], </span><span class="s3">8</span><span class="s1">))</span>
+            <span class="s1">i = j + </span><span class="s3">4</span>
+
+    <span class="s2">return </span><span class="s1">bytes(rv)</span>
+
+
+<span class="s2">def </span><span class="s1">_cookie_parse_impl(b):</span>
+    <span class="s0">&quot;&quot;&quot;Lowlevel cookie parsing facility that operates on bytes.&quot;&quot;&quot;</span>
+    <span class="s1">i = </span><span class="s3">0</span>
+    <span class="s1">n = len(b)</span>
+
+    <span class="s2">while </span><span class="s1">i &lt; n:</span>
+        <span class="s1">match = _cookie_re.search(b + </span><span class="s5">b&quot;;&quot;</span><span class="s1">, i)</span>
+        <span class="s2">if not </span><span class="s1">match:</span>
+            <span class="s2">break</span>
+
+        <span class="s1">key = match.group(</span><span class="s4">&quot;key&quot;</span><span class="s1">).strip()</span>
+        <span class="s1">value = match.group(</span><span class="s4">&quot;val&quot;</span><span class="s1">) </span><span class="s2">or </span><span class="s5">b&quot;&quot;</span>
+        <span class="s1">i = match.end(</span><span class="s3">0</span><span class="s1">)</span>
+
+        <span class="s2">yield </span><span class="s1">_cookie_unquote(key), _cookie_unquote(value)</span>
+
+
+<span class="s2">def </span><span class="s1">_encode_idna(domain):</span>
+    <span class="s0"># If we're given bytes, make sure they fit into ASCII</span>
+    <span class="s2">if not </span><span class="s1">isinstance(domain, text_type):</span>
+        <span class="s1">domain.decode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">)</span>
+        <span class="s2">return </span><span class="s1">domain</span>
+
+    <span class="s0"># Otherwise check if it's already ascii, then return</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">domain.encode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">)</span>
+    <span class="s2">except </span><span class="s1">UnicodeError:</span>
+        <span class="s2">pass</span>
+
+    <span class="s0"># Otherwise encode each part separately</span>
+    <span class="s1">parts = domain.split(</span><span class="s4">&quot;.&quot;</span><span class="s1">)</span>
+    <span class="s2">for </span><span class="s1">idx, part </span><span class="s2">in </span><span class="s1">enumerate(parts):</span>
+        <span class="s1">parts[idx] = part.encode(</span><span class="s4">&quot;idna&quot;</span><span class="s1">)</span>
+    <span class="s2">return </span><span class="s5">b&quot;.&quot;</span><span class="s1">.join(parts)</span>
+
+
+<span class="s2">def </span><span class="s1">_decode_idna(domain):</span>
+    <span class="s0"># If the input is a string try to encode it to ascii to</span>
+    <span class="s0"># do the idna decoding.  if that fails because of an</span>
+    <span class="s0"># unicode error, then we already have a decoded idna domain</span>
+    <span class="s2">if </span><span class="s1">isinstance(domain, text_type):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">domain = domain.encode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">)</span>
+        <span class="s2">except </span><span class="s1">UnicodeError:</span>
+            <span class="s2">return </span><span class="s1">domain</span>
+
+    <span class="s0"># Decode each part separately.  If a part fails, try to</span>
+    <span class="s0"># decode it with ascii and silently ignore errors.  This makes</span>
+    <span class="s0"># most sense because the idna codec does not have error handling</span>
+    <span class="s1">parts = domain.split(</span><span class="s5">b&quot;.&quot;</span><span class="s1">)</span>
+    <span class="s2">for </span><span class="s1">idx, part </span><span class="s2">in </span><span class="s1">enumerate(parts):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">parts[idx] = part.decode(</span><span class="s4">&quot;idna&quot;</span><span class="s1">)</span>
+        <span class="s2">except </span><span class="s1">UnicodeError:</span>
+            <span class="s1">parts[idx] = part.decode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">, </span><span class="s4">&quot;ignore&quot;</span><span class="s1">)</span>
+
+    <span class="s2">return </span><span class="s4">&quot;.&quot;</span><span class="s1">.join(parts)</span>
+
+
+<span class="s2">def </span><span class="s1">_make_cookie_domain(domain):</span>
+    <span class="s2">if </span><span class="s1">domain </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s2">return None</span>
+    <span class="s1">domain = _encode_idna(domain)</span>
+    <span class="s2">if </span><span class="s5">b&quot;:&quot; </span><span class="s2">in </span><span class="s1">domain:</span>
+        <span class="s1">domain = domain.split(</span><span class="s5">b&quot;:&quot;</span><span class="s1">, </span><span class="s3">1</span><span class="s1">)[</span><span class="s3">0</span><span class="s1">]</span>
+    <span class="s2">if </span><span class="s5">b&quot;.&quot; </span><span class="s2">in </span><span class="s1">domain:</span>
+        <span class="s2">return </span><span class="s1">domain</span>
+    <span class="s2">raise </span><span class="s1">ValueError(</span>
+        <span class="s4">&quot;Setting 'domain' for a cookie on a server running locally (ex: &quot;</span>
+        <span class="s4">&quot;localhost) is not supported by complying browsers. You should &quot;</span>
+        <span class="s4">&quot;have something like: '127.0.0.1 localhost dev.localhost' on &quot;</span>
+        <span class="s4">&quot;your hosts file and then point your server to run on &quot;</span>
+        <span class="s4">&quot;'dev.localhost' and also set 'domain' for 'dev.localhost'&quot;</span>
+    <span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">_easteregg(app=</span><span class="s2">None</span><span class="s1">):</span>
+    <span class="s0">&quot;&quot;&quot;Like the name says.  But who knows how it works?&quot;&quot;&quot;</span>
+
+    <span class="s2">def </span><span class="s1">bzzzzzzz(gyver):</span>
+        <span class="s2">import </span><span class="s1">base64</span>
+        <span class="s2">import </span><span class="s1">zlib</span>
+
+        <span class="s2">return </span><span class="s1">zlib.decompress(base64.b64decode(gyver)).decode(</span><span class="s4">&quot;ascii&quot;</span><span class="s1">)</span>
+
+    <span class="s1">gyver = </span><span class="s4">u&quot;</span><span class="s6">\n</span><span class="s4">&quot;</span><span class="s1">.join(</span>
+        <span class="s1">[</span>
+            <span class="s1">x + (</span><span class="s3">77 </span><span class="s1">- len(x)) * </span><span class="s4">u&quot; &quot;</span>
+            <span class="s2">for </span><span class="s1">x </span><span class="s2">in </span><span class="s1">bzzzzzzz(</span>
+                <span class="s5">b&quot;&quot;&quot; 
+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 
+7f2zLkGNv8b191cD/3vs9Q833z8t&quot;&quot;&quot;</span>
+            <span class="s1">).splitlines()</span>
+        <span class="s1">]</span>
+    <span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">easteregged(environ, start_response):</span>
+        <span class="s2">def </span><span class="s1">injecting_start_response(status, headers, exc_info=</span><span class="s2">None</span><span class="s1">):</span>
+            <span class="s1">headers.append((</span><span class="s4">&quot;X-Powered-By&quot;</span><span class="s1">, </span><span class="s4">&quot;Werkzeug&quot;</span><span class="s1">))</span>
+            <span class="s2">return </span><span class="s1">start_response(status, headers, exc_info)</span>
+
+        <span class="s2">if </span><span class="s1">app </span><span class="s2">is not None and </span><span class="s1">environ.get(</span><span class="s4">&quot;QUERY_STRING&quot;</span><span class="s1">) != </span><span class="s4">&quot;macgybarchakku&quot;</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">app(environ, injecting_start_response)</span>
+        <span class="s1">injecting_start_response(</span><span class="s4">&quot;200 OK&quot;</span><span class="s1">, [(</span><span class="s4">&quot;Content-Type&quot;</span><span class="s1">, </span><span class="s4">&quot;text/html&quot;</span><span class="s1">)])</span>
+        <span class="s2">return </span><span class="s1">[</span>
+            <span class="s1">(</span>
+                <span class="s4">u&quot;&quot;&quot; 
+&lt;!DOCTYPE html&gt; 
+&lt;html&gt; 
+&lt;head&gt; 
+&lt;title&gt;About Werkzeug&lt;/title&gt; 
+&lt;style type=&quot;text/css&quot;&gt; 
+  body { font: 15px Georgia, serif; text-align: center; } 
+  a { color: #333; text-decoration: none; } 
+  h1 { font-size: 30px; margin: 20px 0 10px 0; } 
+  p { margin: 0 0 30px 0; } 
+  pre { font: 11px 'Consolas', 'Monaco', monospace; line-height: 0.95; } 
+&lt;/style&gt; 
+&lt;/head&gt; 
+&lt;body&gt; 
+&lt;h1&gt;&lt;a href=&quot;http://werkzeug.pocoo.org/&quot;&gt;Werkzeug&lt;/a&gt;&lt;/h1&gt; 
+&lt;p&gt;the Swiss Army knife of Python web development.&lt;/p&gt; 
+&lt;pre&gt;%s</span><span class="s6">\n\n\n</span><span class="s4">&lt;/pre&gt; 
+&lt;/body&gt; 
+&lt;/html&gt;&quot;&quot;&quot;</span>
+                <span class="s1">% gyver</span>
+            <span class="s1">).encode(</span><span class="s4">&quot;latin1&quot;</span><span class="s1">)</span>
+        <span class="s1">]</span>
+
+    <span class="s2">return </span><span class="s1">easteregged</span>
+</pre>
+</body>
+</html>

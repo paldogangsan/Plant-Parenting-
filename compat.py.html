@@ -1,0 +1,315 @@
+<html>
+<head>
+<title>compat.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #8c8c8c; font-style: italic;}
+.s1 { color: #080808;}
+.s2 { color: #0033b3;}
+.s3 { color: #067d17;}
+.s4 { color: #0037a6;}
+.s5 { color: #1750eb;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+compat.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot;Stuff that differs in different Python versions and platform 
+distributions.&quot;&quot;&quot;</span>
+
+<span class="s0"># The following comment should be removed at some point in the future.</span>
+<span class="s0"># mypy: disallow-untyped-defs=False</span>
+
+<span class="s2">from </span><span class="s1">__future__ </span><span class="s2">import </span><span class="s1">absolute_import, division</span>
+
+<span class="s2">import </span><span class="s1">codecs</span>
+<span class="s2">import </span><span class="s1">functools</span>
+<span class="s2">import </span><span class="s1">locale</span>
+<span class="s2">import </span><span class="s1">logging</span>
+<span class="s2">import </span><span class="s1">os</span>
+<span class="s2">import </span><span class="s1">shutil</span>
+<span class="s2">import </span><span class="s1">sys</span>
+
+<span class="s2">from </span><span class="s1">pip._vendor.six </span><span class="s2">import </span><span class="s1">PY2, text_type</span>
+
+<span class="s2">from </span><span class="s1">pip._internal.utils.typing </span><span class="s2">import </span><span class="s1">MYPY_CHECK_RUNNING</span>
+
+<span class="s2">if </span><span class="s1">MYPY_CHECK_RUNNING:</span>
+    <span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Callable, Optional, Protocol, Text, Tuple, TypeVar, Union</span>
+
+    <span class="s0"># Used in the @lru_cache polyfill.</span>
+    <span class="s1">F = TypeVar(</span><span class="s3">'F'</span><span class="s1">)</span>
+
+    <span class="s2">class </span><span class="s1">LruCache(Protocol):</span>
+        <span class="s2">def </span><span class="s1">__call__(self, maxsize=</span><span class="s2">None</span><span class="s1">):</span>
+            <span class="s0"># type: (Optional[int]) -&gt; Callable[[F], F]</span>
+            <span class="s2">raise </span><span class="s1">NotImplementedError</span>
+
+<span class="s2">try</span><span class="s1">:</span>
+    <span class="s2">import </span><span class="s1">ipaddress</span>
+<span class="s2">except </span><span class="s1">ImportError:</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">from </span><span class="s1">pip._vendor </span><span class="s2">import </span><span class="s1">ipaddress  </span><span class="s0"># type: ignore</span>
+    <span class="s2">except </span><span class="s1">ImportError:</span>
+        <span class="s2">import </span><span class="s1">ipaddr </span><span class="s2">as </span><span class="s1">ipaddress  </span><span class="s0"># type: ignore</span>
+        <span class="s1">ipaddress.ip_address = ipaddress.IPAddress  </span><span class="s0"># type: ignore</span>
+        <span class="s1">ipaddress.ip_network = ipaddress.IPNetwork  </span><span class="s0"># type: ignore</span>
+
+
+<span class="s1">__all__ = [</span>
+    <span class="s3">&quot;ipaddress&quot;</span><span class="s1">, </span><span class="s3">&quot;uses_pycache&quot;</span><span class="s1">, </span><span class="s3">&quot;console_to_str&quot;</span><span class="s1">,</span>
+    <span class="s3">&quot;get_path_uid&quot;</span><span class="s1">, </span><span class="s3">&quot;stdlib_pkgs&quot;</span><span class="s1">, </span><span class="s3">&quot;WINDOWS&quot;</span><span class="s1">, </span><span class="s3">&quot;samefile&quot;</span><span class="s1">, </span><span class="s3">&quot;get_terminal_size&quot;</span><span class="s1">,</span>
+<span class="s1">]</span>
+
+
+<span class="s1">logger = logging.getLogger(__name__)</span>
+
+<span class="s2">if </span><span class="s1">PY2:</span>
+    <span class="s2">import </span><span class="s1">imp</span>
+
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s1">cache_from_source = imp.cache_from_source  </span><span class="s0"># type: ignore</span>
+    <span class="s2">except </span><span class="s1">AttributeError:</span>
+        <span class="s0"># does not use __pycache__</span>
+        <span class="s1">cache_from_source = </span><span class="s2">None</span>
+
+    <span class="s1">uses_pycache = cache_from_source </span><span class="s2">is not None</span>
+<span class="s2">else</span><span class="s1">:</span>
+    <span class="s1">uses_pycache = </span><span class="s2">True</span>
+    <span class="s2">from </span><span class="s1">importlib.util </span><span class="s2">import </span><span class="s1">cache_from_source</span>
+
+
+<span class="s2">if </span><span class="s1">PY2:</span>
+    <span class="s0"># In Python 2.7, backslashreplace exists</span>
+    <span class="s0"># but does not support use for decoding.</span>
+    <span class="s0"># We implement our own replace handler for this</span>
+    <span class="s0"># situation, so that we can consistently use</span>
+    <span class="s0"># backslash replacement for all versions.</span>
+    <span class="s2">def </span><span class="s1">backslashreplace_decode_fn(err):</span>
+        <span class="s1">raw_bytes = (err.object[i] </span><span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">range(err.start, err.end))</span>
+        <span class="s0"># Python 2 gave us characters - convert to numeric bytes</span>
+        <span class="s1">raw_bytes = (ord(b) </span><span class="s2">for </span><span class="s1">b </span><span class="s2">in </span><span class="s1">raw_bytes)</span>
+        <span class="s2">return </span><span class="s3">u&quot;&quot;</span><span class="s1">.join(map(</span><span class="s3">u&quot;</span><span class="s4">\\</span><span class="s3">x{:x}&quot;</span><span class="s1">.format, raw_bytes)), err.end</span>
+    <span class="s1">codecs.register_error(</span>
+        <span class="s3">&quot;backslashreplace_decode&quot;</span><span class="s1">,</span>
+        <span class="s1">backslashreplace_decode_fn,</span>
+    <span class="s1">)</span>
+    <span class="s1">backslashreplace_decode = </span><span class="s3">&quot;backslashreplace_decode&quot;</span>
+<span class="s2">else</span><span class="s1">:</span>
+    <span class="s1">backslashreplace_decode = </span><span class="s3">&quot;backslashreplace&quot;</span>
+
+
+<span class="s2">def </span><span class="s1">has_tls():</span>
+    <span class="s0"># type: () -&gt; bool</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">import </span><span class="s1">_ssl  </span><span class="s0"># noqa: F401  # ignore unused</span>
+        <span class="s2">return True</span>
+    <span class="s2">except </span><span class="s1">ImportError:</span>
+        <span class="s2">pass</span>
+
+    <span class="s2">from </span><span class="s1">pip._vendor.urllib3.util </span><span class="s2">import </span><span class="s1">IS_PYOPENSSL</span>
+    <span class="s2">return </span><span class="s1">IS_PYOPENSSL</span>
+
+
+<span class="s2">def </span><span class="s1">str_to_display(data, desc=</span><span class="s2">None</span><span class="s1">):</span>
+    <span class="s0"># type: (Union[bytes, Text], Optional[str]) -&gt; Text</span>
+    <span class="s0">&quot;&quot;&quot; 
+    For display or logging purposes, convert a bytes object (or text) to 
+    text (e.g. unicode in Python 2) safe for output. 
+ 
+    :param desc: An optional phrase describing the input data, for use in 
+        the log message if a warning is logged. Defaults to &quot;Bytes object&quot;. 
+ 
+    This function should never error out and so can take a best effort 
+    approach. It is okay to be lossy if needed since the return value is 
+    just for display. 
+ 
+    We assume the data is in the locale preferred encoding. If it won't 
+    decode properly, we warn the user but decode as best we can. 
+ 
+    We also ensure that the output can be safely written to standard output 
+    without encoding errors. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">isinstance(data, text_type):</span>
+        <span class="s2">return </span><span class="s1">data</span>
+
+    <span class="s0"># Otherwise, data is a bytes object (str in Python 2).</span>
+    <span class="s0"># First, get the encoding we assume. This is the preferred</span>
+    <span class="s0"># encoding for the locale, unless that is not found, or</span>
+    <span class="s0"># it is ASCII, in which case assume UTF-8</span>
+    <span class="s1">encoding = locale.getpreferredencoding()</span>
+    <span class="s2">if </span><span class="s1">(</span><span class="s2">not </span><span class="s1">encoding) </span><span class="s2">or </span><span class="s1">codecs.lookup(encoding).name == </span><span class="s3">&quot;ascii&quot;</span><span class="s1">:</span>
+        <span class="s1">encoding = </span><span class="s3">&quot;utf-8&quot;</span>
+
+    <span class="s0"># Now try to decode the data - if we fail, warn the user and</span>
+    <span class="s0"># decode with replacement.</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s1">decoded_data = data.decode(encoding)</span>
+    <span class="s2">except </span><span class="s1">UnicodeDecodeError:</span>
+        <span class="s1">logger.warning(</span>
+            <span class="s3">'%s does not appear to be encoded as %s'</span><span class="s1">,</span>
+            <span class="s1">desc </span><span class="s2">or </span><span class="s3">'Bytes object'</span><span class="s1">,</span>
+            <span class="s1">encoding,</span>
+        <span class="s1">)</span>
+        <span class="s1">decoded_data = data.decode(encoding, errors=backslashreplace_decode)</span>
+
+    <span class="s0"># Make sure we can print the output, by encoding it to the output</span>
+    <span class="s0"># encoding with replacement of unencodable characters, and then</span>
+    <span class="s0"># decoding again.</span>
+    <span class="s0"># We use stderr's encoding because it's less likely to be</span>
+    <span class="s0"># redirected and if we don't find an encoding we skip this</span>
+    <span class="s0"># step (on the assumption that output is wrapped by something</span>
+    <span class="s0"># that won't fail).</span>
+    <span class="s0"># The double getattr is to deal with the possibility that we're</span>
+    <span class="s0"># being called in a situation where sys.__stderr__ doesn't exist,</span>
+    <span class="s0"># or doesn't have an encoding attribute. Neither of these cases</span>
+    <span class="s0"># should occur in normal pip use, but there's no harm in checking</span>
+    <span class="s0"># in case people use pip in (unsupported) unusual situations.</span>
+    <span class="s1">output_encoding = getattr(getattr(sys, </span><span class="s3">&quot;__stderr__&quot;</span><span class="s1">, </span><span class="s2">None</span><span class="s1">),</span>
+                              <span class="s3">&quot;encoding&quot;</span><span class="s1">, </span><span class="s2">None</span><span class="s1">)</span>
+
+    <span class="s2">if </span><span class="s1">output_encoding:</span>
+        <span class="s1">output_encoded = decoded_data.encode(</span>
+            <span class="s1">output_encoding,</span>
+            <span class="s1">errors=</span><span class="s3">&quot;backslashreplace&quot;</span>
+        <span class="s1">)</span>
+        <span class="s1">decoded_data = output_encoded.decode(output_encoding)</span>
+
+    <span class="s2">return </span><span class="s1">decoded_data</span>
+
+
+<span class="s2">def </span><span class="s1">console_to_str(data):</span>
+    <span class="s0"># type: (bytes) -&gt; Text</span>
+    <span class="s0">&quot;&quot;&quot;Return a string, safe for output, of subprocess output. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">str_to_display(data, desc=</span><span class="s3">'Subprocess output'</span><span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">get_path_uid(path):</span>
+    <span class="s0"># type: (str) -&gt; int</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Return path's uid. 
+ 
+    Does not follow symlinks: 
+        https://github.com/pypa/pip/pull/935#discussion_r5307003 
+ 
+    Placed this function in compat due to differences on AIX and 
+    Jython, that should eventually go away. 
+ 
+    :raises OSError: When path is a symlink or can't be read. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">hasattr(os, </span><span class="s3">'O_NOFOLLOW'</span><span class="s1">):</span>
+        <span class="s1">fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)</span>
+        <span class="s1">file_uid = os.fstat(fd).st_uid</span>
+        <span class="s1">os.close(fd)</span>
+    <span class="s2">else</span><span class="s1">:  </span><span class="s0"># AIX and Jython</span>
+        <span class="s0"># WARNING: time of check vulnerability, but best we can do w/o NOFOLLOW</span>
+        <span class="s2">if not </span><span class="s1">os.path.islink(path):</span>
+            <span class="s0"># older versions of Jython don't have `os.fstat`</span>
+            <span class="s1">file_uid = os.stat(path).st_uid</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s0"># raise OSError for parity with os.O_NOFOLLOW above</span>
+            <span class="s2">raise </span><span class="s1">OSError(</span>
+                <span class="s3">&quot;{} is a symlink; Will not return uid for symlinks&quot;</span><span class="s1">.format(</span>
+                    <span class="s1">path)</span>
+            <span class="s1">)</span>
+    <span class="s2">return </span><span class="s1">file_uid</span>
+
+
+<span class="s2">def </span><span class="s1">expanduser(path):</span>
+    <span class="s0"># type: (str) -&gt; str</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Expand ~ and ~user constructions. 
+ 
+    Includes a workaround for https://bugs.python.org/issue14768 
+    &quot;&quot;&quot;</span>
+    <span class="s1">expanded = os.path.expanduser(path)</span>
+    <span class="s2">if </span><span class="s1">path.startswith(</span><span class="s3">'~/'</span><span class="s1">) </span><span class="s2">and </span><span class="s1">expanded.startswith(</span><span class="s3">'//'</span><span class="s1">):</span>
+        <span class="s1">expanded = expanded[</span><span class="s5">1</span><span class="s1">:]</span>
+    <span class="s2">return </span><span class="s1">expanded</span>
+
+
+<span class="s0"># packages in the stdlib that may have installation metadata, but should not be</span>
+<span class="s0"># considered 'installed'.  this theoretically could be determined based on</span>
+<span class="s0"># dist.location (py27:`sysconfig.get_paths()['stdlib']`,</span>
+<span class="s0"># py26:sysconfig.get_config_vars('LIBDEST')), but fear platform variation may</span>
+<span class="s0"># make this ineffective, so hard-coding</span>
+<span class="s1">stdlib_pkgs = {</span><span class="s3">&quot;python&quot;</span><span class="s1">, </span><span class="s3">&quot;wsgiref&quot;</span><span class="s1">, </span><span class="s3">&quot;argparse&quot;</span><span class="s1">}</span>
+
+
+<span class="s0"># windows detection, covers cpython and ironpython</span>
+<span class="s1">WINDOWS = (sys.platform.startswith(</span><span class="s3">&quot;win&quot;</span><span class="s1">) </span><span class="s2">or</span>
+           <span class="s1">(sys.platform == </span><span class="s3">'cli' </span><span class="s2">and </span><span class="s1">os.name == </span><span class="s3">'nt'</span><span class="s1">))</span>
+
+
+<span class="s2">def </span><span class="s1">samefile(file1, file2):</span>
+    <span class="s0"># type: (str, str) -&gt; bool</span>
+    <span class="s0">&quot;&quot;&quot;Provide an alternative for os.path.samefile on Windows/Python2&quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">hasattr(os.path, </span><span class="s3">'samefile'</span><span class="s1">):</span>
+        <span class="s2">return </span><span class="s1">os.path.samefile(file1, file2)</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">path1 = os.path.normcase(os.path.abspath(file1))</span>
+        <span class="s1">path2 = os.path.normcase(os.path.abspath(file2))</span>
+        <span class="s2">return </span><span class="s1">path1 == path2</span>
+
+
+<span class="s2">if </span><span class="s1">hasattr(shutil, </span><span class="s3">'get_terminal_size'</span><span class="s1">):</span>
+    <span class="s2">def </span><span class="s1">get_terminal_size():</span>
+        <span class="s0"># type: () -&gt; Tuple[int, int]</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Returns a tuple (x, y) representing the width(x) and the height(y) 
+        in characters of the terminal window. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">return </span><span class="s1">tuple(shutil.get_terminal_size())  </span><span class="s0"># type: ignore</span>
+<span class="s2">else</span><span class="s1">:</span>
+    <span class="s2">def </span><span class="s1">get_terminal_size():</span>
+        <span class="s0"># type: () -&gt; Tuple[int, int]</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Returns a tuple (x, y) representing the width(x) and the height(y) 
+        in characters of the terminal window. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">def </span><span class="s1">ioctl_GWINSZ(fd):</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s2">import </span><span class="s1">fcntl</span>
+                <span class="s2">import </span><span class="s1">struct</span>
+                <span class="s2">import </span><span class="s1">termios</span>
+                <span class="s1">cr = struct.unpack_from(</span>
+                    <span class="s3">'hh'</span><span class="s1">,</span>
+                    <span class="s1">fcntl.ioctl(fd, termios.TIOCGWINSZ, </span><span class="s3">'12345678'</span><span class="s1">)</span>
+                <span class="s1">)</span>
+            <span class="s2">except </span><span class="s1">Exception:</span>
+                <span class="s2">return None</span>
+            <span class="s2">if </span><span class="s1">cr == (</span><span class="s5">0</span><span class="s1">, </span><span class="s5">0</span><span class="s1">):</span>
+                <span class="s2">return None</span>
+            <span class="s2">return </span><span class="s1">cr</span>
+        <span class="s1">cr = ioctl_GWINSZ(</span><span class="s5">0</span><span class="s1">) </span><span class="s2">or </span><span class="s1">ioctl_GWINSZ(</span><span class="s5">1</span><span class="s1">) </span><span class="s2">or </span><span class="s1">ioctl_GWINSZ(</span><span class="s5">2</span><span class="s1">)</span>
+        <span class="s2">if not </span><span class="s1">cr:</span>
+            <span class="s2">if </span><span class="s1">sys.platform != </span><span class="s3">&quot;win32&quot;</span><span class="s1">:</span>
+                <span class="s2">try</span><span class="s1">:</span>
+                    <span class="s1">fd = os.open(os.ctermid(), os.O_RDONLY)</span>
+                    <span class="s1">cr = ioctl_GWINSZ(fd)</span>
+                    <span class="s1">os.close(fd)</span>
+                <span class="s2">except </span><span class="s1">Exception:</span>
+                    <span class="s2">pass</span>
+        <span class="s2">if not </span><span class="s1">cr:</span>
+            <span class="s1">cr = (os.environ.get(</span><span class="s3">'LINES'</span><span class="s1">, </span><span class="s5">25</span><span class="s1">), os.environ.get(</span><span class="s3">'COLUMNS'</span><span class="s1">, </span><span class="s5">80</span><span class="s1">))</span>
+        <span class="s2">return </span><span class="s1">int(cr[</span><span class="s5">1</span><span class="s1">]), int(cr[</span><span class="s5">0</span><span class="s1">])</span>
+
+
+<span class="s0"># Fallback to noop_lru_cache in Python 2</span>
+<span class="s0"># TODO: this can be removed when python 2 support is dropped!</span>
+<span class="s2">def </span><span class="s1">noop_lru_cache(maxsize=</span><span class="s2">None</span><span class="s1">):</span>
+    <span class="s0"># type: (Optional[int]) -&gt; Callable[[F], F]</span>
+    <span class="s2">def </span><span class="s1">_wrapper(f):</span>
+        <span class="s0"># type: (F) -&gt; F</span>
+        <span class="s2">return </span><span class="s1">f</span>
+    <span class="s2">return </span><span class="s1">_wrapper</span>
+
+
+<span class="s1">lru_cache = getattr(functools, </span><span class="s3">&quot;lru_cache&quot;</span><span class="s1">, noop_lru_cache)  </span><span class="s0"># type: LruCache</span>
+</pre>
+</body>
+</html>

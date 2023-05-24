@@ -1,0 +1,397 @@
+<html>
+<head>
+<title>_bashcomplete.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #0033b3;}
+.s1 { color: #080808;}
+.s2 { color: #067d17;}
+.s3 { color: #8c8c8c; font-style: italic;}
+.s4 { color: #0037a6;}
+.s5 { color: #1750eb;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_bashcomplete.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">copy</span>
+<span class="s0">import </span><span class="s1">os</span>
+<span class="s0">import </span><span class="s1">re</span>
+
+<span class="s0">from </span><span class="s1">.core </span><span class="s0">import </span><span class="s1">Argument</span>
+<span class="s0">from </span><span class="s1">.core </span><span class="s0">import </span><span class="s1">MultiCommand</span>
+<span class="s0">from </span><span class="s1">.core </span><span class="s0">import </span><span class="s1">Option</span>
+<span class="s0">from </span><span class="s1">.parser </span><span class="s0">import </span><span class="s1">split_arg_string</span>
+<span class="s0">from </span><span class="s1">.types </span><span class="s0">import </span><span class="s1">Choice</span>
+<span class="s0">from </span><span class="s1">.utils </span><span class="s0">import </span><span class="s1">echo</span>
+
+<span class="s0">try</span><span class="s1">:</span>
+    <span class="s0">from </span><span class="s1">collections </span><span class="s0">import </span><span class="s1">abc</span>
+<span class="s0">except </span><span class="s1">ImportError:</span>
+    <span class="s0">import </span><span class="s1">collections </span><span class="s0">as </span><span class="s1">abc</span>
+
+<span class="s1">WORDBREAK = </span><span class="s2">&quot;=&quot;</span>
+
+<span class="s3"># Note, only BASH version 4.4 and later have the nosort option.</span>
+<span class="s1">COMPLETION_SCRIPT_BASH = </span><span class="s2">&quot;&quot;&quot; 
+%(complete_func)s() { 
+    local IFS=$'</span><span class="s4">\n</span><span class="s2">' 
+    COMPREPLY=( $( env COMP_WORDS=&quot;${COMP_WORDS[*]}&quot; </span><span class="s4">\\</span>
+                   <span class="s2">COMP_CWORD=$COMP_CWORD </span><span class="s4">\\</span>
+                   <span class="s2">%(autocomplete_var)s=complete $1 ) ) 
+    return 0 
+} 
+ 
+%(complete_func)setup() { 
+    local COMPLETION_OPTIONS=&quot;&quot; 
+    local BASH_VERSION_ARR=(${BASH_VERSION//./ }) 
+    # Only BASH version 4.4 and later have the nosort option. 
+    if [ ${BASH_VERSION_ARR[0]} -gt 4 ] || ([ ${BASH_VERSION_ARR[0]} -eq 4 ] </span><span class="s4">\ 
+</span><span class="s2">&amp;&amp; [ ${BASH_VERSION_ARR[1]} -ge 4 ]); then 
+        COMPLETION_OPTIONS=&quot;-o nosort&quot; 
+    fi 
+ 
+    complete $COMPLETION_OPTIONS -F %(complete_func)s %(script_names)s 
+} 
+ 
+%(complete_func)setup 
+&quot;&quot;&quot;</span>
+
+<span class="s1">COMPLETION_SCRIPT_ZSH = </span><span class="s2">&quot;&quot;&quot; 
+#compdef %(script_names)s 
+ 
+%(complete_func)s() { 
+    local -a completions 
+    local -a completions_with_descriptions 
+    local -a response 
+    (( ! $+commands[%(script_names)s] )) &amp;&amp; return 1 
+ 
+    response=(&quot;${(@f)$( env COMP_WORDS=</span><span class="s4">\&quot;</span><span class="s2">${words[*]}</span><span class="s4">\&quot; \\</span>
+                        <span class="s2">COMP_CWORD=$((CURRENT-1)) </span><span class="s4">\\</span>
+                        <span class="s2">%(autocomplete_var)s=</span><span class="s4">\&quot;</span><span class="s2">complete_zsh</span><span class="s4">\&quot; \\</span>
+                        <span class="s2">%(script_names)s )}&quot;) 
+ 
+    for key descr in ${(kv)response}; do 
+      if [[ &quot;$descr&quot; == &quot;_&quot; ]]; then 
+          completions+=(&quot;$key&quot;) 
+      else 
+          completions_with_descriptions+=(&quot;$key&quot;:&quot;$descr&quot;) 
+      fi 
+    done 
+ 
+    if [ -n &quot;$completions_with_descriptions&quot; ]; then 
+        _describe -V unsorted completions_with_descriptions -U 
+    fi 
+ 
+    if [ -n &quot;$completions&quot; ]; then 
+        compadd -U -V unsorted -a completions 
+    fi 
+    compstate[insert]=&quot;automenu&quot; 
+} 
+ 
+compdef %(complete_func)s %(script_names)s 
+&quot;&quot;&quot;</span>
+
+<span class="s1">COMPLETION_SCRIPT_FISH = (</span>
+    <span class="s2">&quot;complete --no-files --command %(script_names)s --arguments&quot;</span>
+    <span class="s2">' &quot;(env %(autocomplete_var)s=complete_fish'</span>
+    <span class="s2">&quot; COMP_WORDS=(commandline -cp) COMP_CWORD=(commandline -t)&quot;</span>
+    <span class="s2">' %(script_names)s)&quot;'</span>
+<span class="s1">)</span>
+
+<span class="s1">_completion_scripts = {</span>
+    <span class="s2">&quot;bash&quot;</span><span class="s1">: COMPLETION_SCRIPT_BASH,</span>
+    <span class="s2">&quot;zsh&quot;</span><span class="s1">: COMPLETION_SCRIPT_ZSH,</span>
+    <span class="s2">&quot;fish&quot;</span><span class="s1">: COMPLETION_SCRIPT_FISH,</span>
+<span class="s1">}</span>
+
+<span class="s1">_invalid_ident_char_re = re.compile(</span><span class="s2">r&quot;[^a-zA-Z0-9_]&quot;</span><span class="s1">)</span>
+
+
+<span class="s0">def </span><span class="s1">get_completion_script(prog_name, complete_var, shell):</span>
+    <span class="s1">cf_name = _invalid_ident_char_re.sub(</span><span class="s2">&quot;&quot;</span><span class="s1">, prog_name.replace(</span><span class="s2">&quot;-&quot;</span><span class="s1">, </span><span class="s2">&quot;_&quot;</span><span class="s1">))</span>
+    <span class="s1">script = _completion_scripts.get(shell, COMPLETION_SCRIPT_BASH)</span>
+    <span class="s0">return </span><span class="s1">(</span>
+        <span class="s1">script</span>
+        <span class="s1">% {</span>
+            <span class="s2">&quot;complete_func&quot;</span><span class="s1">: </span><span class="s2">&quot;_{}_completion&quot;</span><span class="s1">.format(cf_name),</span>
+            <span class="s2">&quot;script_names&quot;</span><span class="s1">: prog_name,</span>
+            <span class="s2">&quot;autocomplete_var&quot;</span><span class="s1">: complete_var,</span>
+        <span class="s1">}</span>
+    <span class="s1">).strip() + </span><span class="s2">&quot;;&quot;</span>
+
+
+<span class="s0">def </span><span class="s1">resolve_ctx(cli, prog_name, args):</span>
+    <span class="s3">&quot;&quot;&quot;Parse into a hierarchy of contexts. Contexts are connected 
+    through the parent variable. 
+ 
+    :param cli: command definition 
+    :param prog_name: the program that is running 
+    :param args: full list of args 
+    :return: the final context/command parsed 
+    &quot;&quot;&quot;</span>
+    <span class="s1">ctx = cli.make_context(prog_name, args, resilient_parsing=</span><span class="s0">True</span><span class="s1">)</span>
+    <span class="s1">args = ctx.protected_args + ctx.args</span>
+    <span class="s0">while </span><span class="s1">args:</span>
+        <span class="s0">if </span><span class="s1">isinstance(ctx.command, MultiCommand):</span>
+            <span class="s0">if not </span><span class="s1">ctx.command.chain:</span>
+                <span class="s1">cmd_name, cmd, args = ctx.command.resolve_command(ctx, args)</span>
+                <span class="s0">if </span><span class="s1">cmd </span><span class="s0">is None</span><span class="s1">:</span>
+                    <span class="s0">return </span><span class="s1">ctx</span>
+                <span class="s1">ctx = cmd.make_context(</span>
+                    <span class="s1">cmd_name, args, parent=ctx, resilient_parsing=</span><span class="s0">True</span>
+                <span class="s1">)</span>
+                <span class="s1">args = ctx.protected_args + ctx.args</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s3"># Walk chained subcommand contexts saving the last one.</span>
+                <span class="s0">while </span><span class="s1">args:</span>
+                    <span class="s1">cmd_name, cmd, args = ctx.command.resolve_command(ctx, args)</span>
+                    <span class="s0">if </span><span class="s1">cmd </span><span class="s0">is None</span><span class="s1">:</span>
+                        <span class="s0">return </span><span class="s1">ctx</span>
+                    <span class="s1">sub_ctx = cmd.make_context(</span>
+                        <span class="s1">cmd_name,</span>
+                        <span class="s1">args,</span>
+                        <span class="s1">parent=ctx,</span>
+                        <span class="s1">allow_extra_args=</span><span class="s0">True</span><span class="s1">,</span>
+                        <span class="s1">allow_interspersed_args=</span><span class="s0">False</span><span class="s1">,</span>
+                        <span class="s1">resilient_parsing=</span><span class="s0">True</span><span class="s1">,</span>
+                    <span class="s1">)</span>
+                    <span class="s1">args = sub_ctx.args</span>
+                <span class="s1">ctx = sub_ctx</span>
+                <span class="s1">args = sub_ctx.protected_args + sub_ctx.args</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">break</span>
+    <span class="s0">return </span><span class="s1">ctx</span>
+
+
+<span class="s0">def </span><span class="s1">start_of_option(param_str):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param param_str: param_str to check 
+    :return: whether or not this is the start of an option declaration 
+        (i.e. starts &quot;-&quot; or &quot;--&quot;) 
+    &quot;&quot;&quot;</span>
+    <span class="s0">return </span><span class="s1">param_str </span><span class="s0">and </span><span class="s1">param_str[:</span><span class="s5">1</span><span class="s1">] == </span><span class="s2">&quot;-&quot;</span>
+
+
+<span class="s0">def </span><span class="s1">is_incomplete_option(all_args, cmd_param):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param all_args: the full original list of args supplied 
+    :param cmd_param: the current command paramter 
+    :return: whether or not the last option declaration (i.e. starts 
+        &quot;-&quot; or &quot;--&quot;) is incomplete and corresponds to this cmd_param. In 
+        other words whether this cmd_param option can still accept 
+        values 
+    &quot;&quot;&quot;</span>
+    <span class="s0">if not </span><span class="s1">isinstance(cmd_param, Option):</span>
+        <span class="s0">return False</span>
+    <span class="s0">if </span><span class="s1">cmd_param.is_flag:</span>
+        <span class="s0">return False</span>
+    <span class="s1">last_option = </span><span class="s0">None</span>
+    <span class="s0">for </span><span class="s1">index, arg_str </span><span class="s0">in </span><span class="s1">enumerate(</span>
+        <span class="s1">reversed([arg </span><span class="s0">for </span><span class="s1">arg </span><span class="s0">in </span><span class="s1">all_args </span><span class="s0">if </span><span class="s1">arg != WORDBREAK])</span>
+    <span class="s1">):</span>
+        <span class="s0">if </span><span class="s1">index + </span><span class="s5">1 </span><span class="s1">&gt; cmd_param.nargs:</span>
+            <span class="s0">break</span>
+        <span class="s0">if </span><span class="s1">start_of_option(arg_str):</span>
+            <span class="s1">last_option = arg_str</span>
+
+    <span class="s0">return True if </span><span class="s1">last_option </span><span class="s0">and </span><span class="s1">last_option </span><span class="s0">in </span><span class="s1">cmd_param.opts </span><span class="s0">else False</span>
+
+
+<span class="s0">def </span><span class="s1">is_incomplete_argument(current_params, cmd_param):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param current_params: the current params and values for this 
+        argument as already entered 
+    :param cmd_param: the current command parameter 
+    :return: whether or not the last argument is incomplete and 
+        corresponds to this cmd_param. In other words whether or not the 
+        this cmd_param argument can still accept values 
+    &quot;&quot;&quot;</span>
+    <span class="s0">if not </span><span class="s1">isinstance(cmd_param, Argument):</span>
+        <span class="s0">return False</span>
+    <span class="s1">current_param_values = current_params[cmd_param.name]</span>
+    <span class="s0">if </span><span class="s1">current_param_values </span><span class="s0">is None</span><span class="s1">:</span>
+        <span class="s0">return True</span>
+    <span class="s0">if </span><span class="s1">cmd_param.nargs == -</span><span class="s5">1</span><span class="s1">:</span>
+        <span class="s0">return True</span>
+    <span class="s0">if </span><span class="s1">(</span>
+        <span class="s1">isinstance(current_param_values, abc.Iterable)</span>
+        <span class="s0">and </span><span class="s1">cmd_param.nargs &gt; </span><span class="s5">1</span>
+        <span class="s0">and </span><span class="s1">len(current_param_values) &lt; cmd_param.nargs</span>
+    <span class="s1">):</span>
+        <span class="s0">return True</span>
+    <span class="s0">return False</span>
+
+
+<span class="s0">def </span><span class="s1">get_user_autocompletions(ctx, args, incomplete, cmd_param):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param ctx: context associated with the parsed command 
+    :param args: full list of args 
+    :param incomplete: the incomplete text to autocomplete 
+    :param cmd_param: command definition 
+    :return: all the possible user-specified completions for the param 
+    &quot;&quot;&quot;</span>
+    <span class="s1">results = []</span>
+    <span class="s0">if </span><span class="s1">isinstance(cmd_param.type, Choice):</span>
+        <span class="s3"># Choices don't support descriptions.</span>
+        <span class="s1">results = [</span>
+            <span class="s1">(c, </span><span class="s0">None</span><span class="s1">) </span><span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">cmd_param.type.choices </span><span class="s0">if </span><span class="s1">str(c).startswith(incomplete)</span>
+        <span class="s1">]</span>
+    <span class="s0">elif </span><span class="s1">cmd_param.autocompletion </span><span class="s0">is not None</span><span class="s1">:</span>
+        <span class="s1">dynamic_completions = cmd_param.autocompletion(</span>
+            <span class="s1">ctx=ctx, args=args, incomplete=incomplete</span>
+        <span class="s1">)</span>
+        <span class="s1">results = [</span>
+            <span class="s1">c </span><span class="s0">if </span><span class="s1">isinstance(c, tuple) </span><span class="s0">else </span><span class="s1">(c, </span><span class="s0">None</span><span class="s1">) </span><span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">dynamic_completions</span>
+        <span class="s1">]</span>
+    <span class="s0">return </span><span class="s1">results</span>
+
+
+<span class="s0">def </span><span class="s1">get_visible_commands_starting_with(ctx, starts_with):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param ctx: context associated with the parsed command 
+    :starts_with: string that visible commands must start with. 
+    :return: all visible (not hidden) commands that start with starts_with. 
+    &quot;&quot;&quot;</span>
+    <span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">ctx.command.list_commands(ctx):</span>
+        <span class="s0">if </span><span class="s1">c.startswith(starts_with):</span>
+            <span class="s1">command = ctx.command.get_command(ctx, c)</span>
+            <span class="s0">if not </span><span class="s1">command.hidden:</span>
+                <span class="s0">yield </span><span class="s1">command</span>
+
+
+<span class="s0">def </span><span class="s1">add_subcommand_completions(ctx, incomplete, completions_out):</span>
+    <span class="s3"># Add subcommand completions.</span>
+    <span class="s0">if </span><span class="s1">isinstance(ctx.command, MultiCommand):</span>
+        <span class="s1">completions_out.extend(</span>
+            <span class="s1">[</span>
+                <span class="s1">(c.name, c.get_short_help_str())</span>
+                <span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">get_visible_commands_starting_with(ctx, incomplete)</span>
+            <span class="s1">]</span>
+        <span class="s1">)</span>
+
+    <span class="s3"># Walk up the context list and add any other completion</span>
+    <span class="s3"># possibilities from chained commands</span>
+    <span class="s0">while </span><span class="s1">ctx.parent </span><span class="s0">is not None</span><span class="s1">:</span>
+        <span class="s1">ctx = ctx.parent</span>
+        <span class="s0">if </span><span class="s1">isinstance(ctx.command, MultiCommand) </span><span class="s0">and </span><span class="s1">ctx.command.chain:</span>
+            <span class="s1">remaining_commands = [</span>
+                <span class="s1">c</span>
+                <span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">get_visible_commands_starting_with(ctx, incomplete)</span>
+                <span class="s0">if </span><span class="s1">c.name </span><span class="s0">not in </span><span class="s1">ctx.protected_args</span>
+            <span class="s1">]</span>
+            <span class="s1">completions_out.extend(</span>
+                <span class="s1">[(c.name, c.get_short_help_str()) </span><span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">remaining_commands]</span>
+            <span class="s1">)</span>
+
+
+<span class="s0">def </span><span class="s1">get_choices(cli, prog_name, args, incomplete):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    :param cli: command definition 
+    :param prog_name: the program that is running 
+    :param args: full list of args 
+    :param incomplete: the incomplete text to autocomplete 
+    :return: all the possible completions for the incomplete 
+    &quot;&quot;&quot;</span>
+    <span class="s1">all_args = copy.deepcopy(args)</span>
+
+    <span class="s1">ctx = resolve_ctx(cli, prog_name, args)</span>
+    <span class="s0">if </span><span class="s1">ctx </span><span class="s0">is None</span><span class="s1">:</span>
+        <span class="s0">return </span><span class="s1">[]</span>
+
+    <span class="s1">has_double_dash = </span><span class="s2">&quot;--&quot; </span><span class="s0">in </span><span class="s1">all_args</span>
+
+    <span class="s3"># In newer versions of bash long opts with '='s are partitioned, but</span>
+    <span class="s3"># it's easier to parse without the '='</span>
+    <span class="s0">if </span><span class="s1">start_of_option(incomplete) </span><span class="s0">and </span><span class="s1">WORDBREAK </span><span class="s0">in </span><span class="s1">incomplete:</span>
+        <span class="s1">partition_incomplete = incomplete.partition(WORDBREAK)</span>
+        <span class="s1">all_args.append(partition_incomplete[</span><span class="s5">0</span><span class="s1">])</span>
+        <span class="s1">incomplete = partition_incomplete[</span><span class="s5">2</span><span class="s1">]</span>
+    <span class="s0">elif </span><span class="s1">incomplete == WORDBREAK:</span>
+        <span class="s1">incomplete = </span><span class="s2">&quot;&quot;</span>
+
+    <span class="s1">completions = []</span>
+    <span class="s0">if not </span><span class="s1">has_double_dash </span><span class="s0">and </span><span class="s1">start_of_option(incomplete):</span>
+        <span class="s3"># completions for partial options</span>
+        <span class="s0">for </span><span class="s1">param </span><span class="s0">in </span><span class="s1">ctx.command.params:</span>
+            <span class="s0">if </span><span class="s1">isinstance(param, Option) </span><span class="s0">and not </span><span class="s1">param.hidden:</span>
+                <span class="s1">param_opts = [</span>
+                    <span class="s1">param_opt</span>
+                    <span class="s0">for </span><span class="s1">param_opt </span><span class="s0">in </span><span class="s1">param.opts + param.secondary_opts</span>
+                    <span class="s0">if </span><span class="s1">param_opt </span><span class="s0">not in </span><span class="s1">all_args </span><span class="s0">or </span><span class="s1">param.multiple</span>
+                <span class="s1">]</span>
+                <span class="s1">completions.extend(</span>
+                    <span class="s1">[(o, param.help) </span><span class="s0">for </span><span class="s1">o </span><span class="s0">in </span><span class="s1">param_opts </span><span class="s0">if </span><span class="s1">o.startswith(incomplete)]</span>
+                <span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">completions</span>
+    <span class="s3"># completion for option values from user supplied values</span>
+    <span class="s0">for </span><span class="s1">param </span><span class="s0">in </span><span class="s1">ctx.command.params:</span>
+        <span class="s0">if </span><span class="s1">is_incomplete_option(all_args, param):</span>
+            <span class="s0">return </span><span class="s1">get_user_autocompletions(ctx, all_args, incomplete, param)</span>
+    <span class="s3"># completion for argument values from user supplied values</span>
+    <span class="s0">for </span><span class="s1">param </span><span class="s0">in </span><span class="s1">ctx.command.params:</span>
+        <span class="s0">if </span><span class="s1">is_incomplete_argument(ctx.params, param):</span>
+            <span class="s0">return </span><span class="s1">get_user_autocompletions(ctx, all_args, incomplete, param)</span>
+
+    <span class="s1">add_subcommand_completions(ctx, incomplete, completions)</span>
+    <span class="s3"># Sort before returning so that proper ordering can be enforced in custom types.</span>
+    <span class="s0">return </span><span class="s1">sorted(completions)</span>
+
+
+<span class="s0">def </span><span class="s1">do_complete(cli, prog_name, include_descriptions):</span>
+    <span class="s1">cwords = split_arg_string(os.environ[</span><span class="s2">&quot;COMP_WORDS&quot;</span><span class="s1">])</span>
+    <span class="s1">cword = int(os.environ[</span><span class="s2">&quot;COMP_CWORD&quot;</span><span class="s1">])</span>
+    <span class="s1">args = cwords[</span><span class="s5">1</span><span class="s1">:cword]</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s1">incomplete = cwords[cword]</span>
+    <span class="s0">except </span><span class="s1">IndexError:</span>
+        <span class="s1">incomplete = </span><span class="s2">&quot;&quot;</span>
+
+    <span class="s0">for </span><span class="s1">item </span><span class="s0">in </span><span class="s1">get_choices(cli, prog_name, args, incomplete):</span>
+        <span class="s1">echo(item[</span><span class="s5">0</span><span class="s1">])</span>
+        <span class="s0">if </span><span class="s1">include_descriptions:</span>
+            <span class="s3"># ZSH has trouble dealing with empty array parameters when</span>
+            <span class="s3"># returned from commands, use '_' to indicate no description</span>
+            <span class="s3"># is present.</span>
+            <span class="s1">echo(item[</span><span class="s5">1</span><span class="s1">] </span><span class="s0">if </span><span class="s1">item[</span><span class="s5">1</span><span class="s1">] </span><span class="s0">else </span><span class="s2">&quot;_&quot;</span><span class="s1">)</span>
+
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">do_complete_fish(cli, prog_name):</span>
+    <span class="s1">cwords = split_arg_string(os.environ[</span><span class="s2">&quot;COMP_WORDS&quot;</span><span class="s1">])</span>
+    <span class="s1">incomplete = os.environ[</span><span class="s2">&quot;COMP_CWORD&quot;</span><span class="s1">]</span>
+    <span class="s1">args = cwords[</span><span class="s5">1</span><span class="s1">:]</span>
+
+    <span class="s0">for </span><span class="s1">item </span><span class="s0">in </span><span class="s1">get_choices(cli, prog_name, args, incomplete):</span>
+        <span class="s0">if </span><span class="s1">item[</span><span class="s5">1</span><span class="s1">]:</span>
+            <span class="s1">echo(</span><span class="s2">&quot;{arg}</span><span class="s4">\t</span><span class="s2">{desc}&quot;</span><span class="s1">.format(arg=item[</span><span class="s5">0</span><span class="s1">], desc=item[</span><span class="s5">1</span><span class="s1">]))</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">echo(item[</span><span class="s5">0</span><span class="s1">])</span>
+
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">bashcomplete(cli, prog_name, complete_var, complete_instr):</span>
+    <span class="s0">if </span><span class="s2">&quot;_&quot; </span><span class="s0">in </span><span class="s1">complete_instr:</span>
+        <span class="s1">command, shell = complete_instr.split(</span><span class="s2">&quot;_&quot;</span><span class="s1">, </span><span class="s5">1</span><span class="s1">)</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">command = complete_instr</span>
+        <span class="s1">shell = </span><span class="s2">&quot;bash&quot;</span>
+
+    <span class="s0">if </span><span class="s1">command == </span><span class="s2">&quot;source&quot;</span><span class="s1">:</span>
+        <span class="s1">echo(get_completion_script(prog_name, complete_var, shell))</span>
+        <span class="s0">return True</span>
+    <span class="s0">elif </span><span class="s1">command == </span><span class="s2">&quot;complete&quot;</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s1">shell == </span><span class="s2">&quot;fish&quot;</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">do_complete_fish(cli, prog_name)</span>
+        <span class="s0">elif </span><span class="s1">shell </span><span class="s0">in </span><span class="s1">{</span><span class="s2">&quot;bash&quot;</span><span class="s1">, </span><span class="s2">&quot;zsh&quot;</span><span class="s1">}:</span>
+            <span class="s0">return </span><span class="s1">do_complete(cli, prog_name, shell == </span><span class="s2">&quot;zsh&quot;</span><span class="s1">)</span>
+
+    <span class="s0">return False</span>
+</pre>
+</body>
+</html>

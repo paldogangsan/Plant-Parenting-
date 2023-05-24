@@ -1,0 +1,70 @@
+<html>
+<head>
+<title>accept.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #0033b3;}
+.s1 { color: #080808;}
+.s2 { color: #8c8c8c; font-style: italic;}
+.s3 { color: #067d17;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+accept.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">..datastructures </span><span class="s0">import </span><span class="s1">CharsetAccept</span>
+<span class="s0">from </span><span class="s1">..datastructures </span><span class="s0">import </span><span class="s1">LanguageAccept</span>
+<span class="s0">from </span><span class="s1">..datastructures </span><span class="s0">import </span><span class="s1">MIMEAccept</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_accept_header</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">cached_property</span>
+
+
+<span class="s0">class </span><span class="s1">AcceptMixin(object):</span>
+    <span class="s2">&quot;&quot;&quot;A mixin for classes with an :attr:`~BaseResponse.environ` attribute 
+    to get all the HTTP accept headers as 
+    :class:`~werkzeug.datastructures.Accept` objects (or subclasses 
+    thereof). 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">accept_mimetypes(self):</span>
+        <span class="s2">&quot;&quot;&quot;List of mimetypes this client supports as 
+        :class:`~werkzeug.datastructures.MIMEAccept` object. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">parse_accept_header(self.environ.get(</span><span class="s3">&quot;HTTP_ACCEPT&quot;</span><span class="s1">), MIMEAccept)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">accept_charsets(self):</span>
+        <span class="s2">&quot;&quot;&quot;List of charsets this client supports as 
+        :class:`~werkzeug.datastructures.CharsetAccept` object. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">parse_accept_header(</span>
+            <span class="s1">self.environ.get(</span><span class="s3">&quot;HTTP_ACCEPT_CHARSET&quot;</span><span class="s1">), CharsetAccept</span>
+        <span class="s1">)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">accept_encodings(self):</span>
+        <span class="s2">&quot;&quot;&quot;List of encodings this client accepts.  Encodings in a HTTP term 
+        are compression encodings such as gzip.  For charsets have a look at 
+        :attr:`accept_charset`. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">parse_accept_header(self.environ.get(</span><span class="s3">&quot;HTTP_ACCEPT_ENCODING&quot;</span><span class="s1">))</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">accept_languages(self):</span>
+        <span class="s2">&quot;&quot;&quot;List of languages this client accepts as 
+        :class:`~werkzeug.datastructures.LanguageAccept` object. 
+ 
+        .. versionchanged 0.5 
+           In previous versions this was a regular 
+           :class:`~werkzeug.datastructures.Accept` object. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">parse_accept_header(</span>
+            <span class="s1">self.environ.get(</span><span class="s3">&quot;HTTP_ACCEPT_LANGUAGE&quot;</span><span class="s1">), LanguageAccept</span>
+        <span class="s1">)</span>
+</pre>
+</body>
+</html>

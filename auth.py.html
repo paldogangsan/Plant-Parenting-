@@ -1,0 +1,53 @@
+<html>
+<head>
+<title>auth.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #0033b3;}
+.s1 { color: #080808;}
+.s2 { color: #8c8c8c; font-style: italic;}
+.s3 { color: #067d17;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+auth.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_authorization_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_www_authenticate_header</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">cached_property</span>
+
+
+<span class="s0">class </span><span class="s1">AuthorizationMixin(object):</span>
+    <span class="s2">&quot;&quot;&quot;Adds an :attr:`authorization` property that represents the parsed 
+    value of the `Authorization` header as 
+    :class:`~werkzeug.datastructures.Authorization` object. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">authorization(self):</span>
+        <span class="s2">&quot;&quot;&quot;The `Authorization` object in parsed form.&quot;&quot;&quot;</span>
+        <span class="s1">header = self.environ.get(</span><span class="s3">&quot;HTTP_AUTHORIZATION&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">parse_authorization_header(header)</span>
+
+
+<span class="s0">class </span><span class="s1">WWWAuthenticateMixin(object):</span>
+    <span class="s2">&quot;&quot;&quot;Adds a :attr:`www_authenticate` property to a response object.&quot;&quot;&quot;</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">www_authenticate(self):</span>
+        <span class="s2">&quot;&quot;&quot;The `WWW-Authenticate` header in a parsed form.&quot;&quot;&quot;</span>
+
+        <span class="s0">def </span><span class="s1">on_update(www_auth):</span>
+            <span class="s0">if not </span><span class="s1">www_auth </span><span class="s0">and </span><span class="s3">&quot;www-authenticate&quot; </span><span class="s0">in </span><span class="s1">self.headers:</span>
+                <span class="s0">del </span><span class="s1">self.headers[</span><span class="s3">&quot;www-authenticate&quot;</span><span class="s1">]</span>
+            <span class="s0">elif </span><span class="s1">www_auth:</span>
+                <span class="s1">self.headers[</span><span class="s3">&quot;WWW-Authenticate&quot;</span><span class="s1">] = www_auth.to_header()</span>
+
+        <span class="s1">header = self.headers.get(</span><span class="s3">&quot;www-authenticate&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">parse_www_authenticate_header(header, on_update)</span>
+</pre>
+</body>
+</html>

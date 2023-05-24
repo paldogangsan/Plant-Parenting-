@@ -1,0 +1,154 @@
+<html>
+<head>
+<title>_unicodefun.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #0033b3;}
+.s1 { color: #080808;}
+.s2 { color: #067d17;}
+.s3 { color: #8c8c8c; font-style: italic;}
+.s4 { color: #1750eb;}
+.s5 { color: #8a822d;}
+.s6 { color: #0037a6;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_unicodefun.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">codecs</span>
+<span class="s0">import </span><span class="s1">os</span>
+<span class="s0">import </span><span class="s1">sys</span>
+
+<span class="s0">from </span><span class="s1">._compat </span><span class="s0">import </span><span class="s1">PY2</span>
+
+
+<span class="s0">def </span><span class="s1">_find_unicode_literals_frame():</span>
+    <span class="s0">import </span><span class="s1">__future__</span>
+
+    <span class="s0">if not </span><span class="s1">hasattr(sys, </span><span class="s2">&quot;_getframe&quot;</span><span class="s1">):  </span><span class="s3"># not all Python implementations have it</span>
+        <span class="s0">return </span><span class="s4">0</span>
+    <span class="s1">frm = sys._getframe(</span><span class="s4">1</span><span class="s1">)</span>
+    <span class="s1">idx = </span><span class="s4">1</span>
+    <span class="s0">while </span><span class="s1">frm </span><span class="s0">is not None</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s1">frm.f_globals.get(</span><span class="s2">&quot;__name__&quot;</span><span class="s1">, </span><span class="s2">&quot;&quot;</span><span class="s1">).startswith(</span><span class="s2">&quot;click.&quot;</span><span class="s1">):</span>
+            <span class="s1">frm = frm.f_back</span>
+            <span class="s1">idx += </span><span class="s4">1</span>
+        <span class="s0">elif </span><span class="s1">frm.f_code.co_flags &amp; __future__.unicode_literals.compiler_flag:</span>
+            <span class="s0">return </span><span class="s1">idx</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">break</span>
+    <span class="s0">return </span><span class="s4">0</span>
+
+
+<span class="s0">def </span><span class="s1">_check_for_unicode_literals():</span>
+    <span class="s0">if not __debug__</span><span class="s1">:</span>
+        <span class="s0">return</span>
+
+    <span class="s0">from </span><span class="s1">. </span><span class="s0">import </span><span class="s1">disable_unicode_literals_warning</span>
+
+    <span class="s0">if not </span><span class="s1">PY2 </span><span class="s0">or </span><span class="s1">disable_unicode_literals_warning:</span>
+        <span class="s0">return</span>
+    <span class="s1">bad_frame = _find_unicode_literals_frame()</span>
+    <span class="s0">if </span><span class="s1">bad_frame &lt;= </span><span class="s4">0</span><span class="s1">:</span>
+        <span class="s0">return</span>
+    <span class="s0">from </span><span class="s1">warnings </span><span class="s0">import </span><span class="s1">warn</span>
+
+    <span class="s1">warn(</span>
+        <span class="s1">Warning(</span>
+            <span class="s2">&quot;Click detected the use of the unicode_literals __future__&quot;</span>
+            <span class="s2">&quot; import. This is heavily discouraged because it can&quot;</span>
+            <span class="s2">&quot; introduce subtle bugs in your code. You should instead&quot;</span>
+            <span class="s2">' use explicit u&quot;&quot; literals for your unicode strings. For'</span>
+            <span class="s2">&quot; more information see&quot;</span>
+            <span class="s2">&quot; https://click.palletsprojects.com/python3/&quot;</span>
+        <span class="s1">),</span>
+        <span class="s1">stacklevel=bad_frame,</span>
+    <span class="s1">)</span>
+
+
+<span class="s0">def </span><span class="s1">_verify_python3_env():</span>
+    <span class="s3">&quot;&quot;&quot;Ensures that the environment is good for unicode on Python 3.&quot;&quot;&quot;</span>
+    <span class="s0">if </span><span class="s1">PY2:</span>
+        <span class="s0">return</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s0">import </span><span class="s1">locale</span>
+
+        <span class="s1">fs_enc = codecs.lookup(locale.getpreferredencoding()).name</span>
+    <span class="s0">except </span><span class="s1">Exception:</span>
+        <span class="s1">fs_enc = </span><span class="s2">&quot;ascii&quot;</span>
+    <span class="s0">if </span><span class="s1">fs_enc != </span><span class="s2">&quot;ascii&quot;</span><span class="s1">:</span>
+        <span class="s0">return</span>
+
+    <span class="s1">extra = </span><span class="s2">&quot;&quot;</span>
+    <span class="s0">if </span><span class="s1">os.name == </span><span class="s2">&quot;posix&quot;</span><span class="s1">:</span>
+        <span class="s0">import </span><span class="s1">subprocess</span>
+
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">rv = subprocess.Popen(</span>
+                <span class="s1">[</span><span class="s2">&quot;locale&quot;</span><span class="s1">, </span><span class="s2">&quot;-a&quot;</span><span class="s1">], stdout=subprocess.PIPE, stderr=subprocess.PIPE</span>
+            <span class="s1">).communicate()[</span><span class="s4">0</span><span class="s1">]</span>
+        <span class="s0">except </span><span class="s1">OSError:</span>
+            <span class="s1">rv = </span><span class="s5">b&quot;&quot;</span>
+        <span class="s1">good_locales = set()</span>
+        <span class="s1">has_c_utf8 = </span><span class="s0">False</span>
+
+        <span class="s3"># Make sure we're operating on text here.</span>
+        <span class="s0">if </span><span class="s1">isinstance(rv, bytes):</span>
+            <span class="s1">rv = rv.decode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">, </span><span class="s2">&quot;replace&quot;</span><span class="s1">)</span>
+
+        <span class="s0">for </span><span class="s1">line </span><span class="s0">in </span><span class="s1">rv.splitlines():</span>
+            <span class="s1">locale = line.strip()</span>
+            <span class="s0">if </span><span class="s1">locale.lower().endswith((</span><span class="s2">&quot;.utf-8&quot;</span><span class="s1">, </span><span class="s2">&quot;.utf8&quot;</span><span class="s1">)):</span>
+                <span class="s1">good_locales.add(locale)</span>
+                <span class="s0">if </span><span class="s1">locale.lower() </span><span class="s0">in </span><span class="s1">(</span><span class="s2">&quot;c.utf8&quot;</span><span class="s1">, </span><span class="s2">&quot;c.utf-8&quot;</span><span class="s1">):</span>
+                    <span class="s1">has_c_utf8 = </span><span class="s0">True</span>
+
+        <span class="s1">extra += </span><span class="s2">&quot;</span><span class="s6">\n\n</span><span class="s2">&quot;</span>
+        <span class="s0">if not </span><span class="s1">good_locales:</span>
+            <span class="s1">extra += (</span>
+                <span class="s2">&quot;Additional information: on this system no suitable&quot;</span>
+                <span class="s2">&quot; UTF-8 locales were discovered. This most likely&quot;</span>
+                <span class="s2">&quot; requires resolving by reconfiguring the locale&quot;</span>
+                <span class="s2">&quot; system.&quot;</span>
+            <span class="s1">)</span>
+        <span class="s0">elif </span><span class="s1">has_c_utf8:</span>
+            <span class="s1">extra += (</span>
+                <span class="s2">&quot;This system supports the C.UTF-8 locale which is&quot;</span>
+                <span class="s2">&quot; recommended. You might be able to resolve your issue&quot;</span>
+                <span class="s2">&quot; by exporting the following environment variables:</span><span class="s6">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;    export LC_ALL=C.UTF-8</span><span class="s6">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;    export LANG=C.UTF-8&quot;</span>
+            <span class="s1">)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">extra += (</span>
+                <span class="s2">&quot;This system lists a couple of UTF-8 supporting locales&quot;</span>
+                <span class="s2">&quot; that you can pick from. The following suitable&quot;</span>
+                <span class="s2">&quot; locales were discovered: {}&quot;</span><span class="s1">.format(</span><span class="s2">&quot;, &quot;</span><span class="s1">.join(sorted(good_locales)))</span>
+            <span class="s1">)</span>
+
+        <span class="s1">bad_locale = </span><span class="s0">None</span>
+        <span class="s0">for </span><span class="s1">locale </span><span class="s0">in </span><span class="s1">os.environ.get(</span><span class="s2">&quot;LC_ALL&quot;</span><span class="s1">), os.environ.get(</span><span class="s2">&quot;LANG&quot;</span><span class="s1">):</span>
+            <span class="s0">if </span><span class="s1">locale </span><span class="s0">and </span><span class="s1">locale.lower().endswith((</span><span class="s2">&quot;.utf-8&quot;</span><span class="s1">, </span><span class="s2">&quot;.utf8&quot;</span><span class="s1">)):</span>
+                <span class="s1">bad_locale = locale</span>
+            <span class="s0">if </span><span class="s1">locale </span><span class="s0">is not None</span><span class="s1">:</span>
+                <span class="s0">break</span>
+        <span class="s0">if </span><span class="s1">bad_locale </span><span class="s0">is not None</span><span class="s1">:</span>
+            <span class="s1">extra += (</span>
+                <span class="s2">&quot;</span><span class="s6">\n\n</span><span class="s2">Click discovered that you exported a UTF-8 locale&quot;</span>
+                <span class="s2">&quot; but the locale system could not pick up from it&quot;</span>
+                <span class="s2">&quot; because it does not exist. The exported locale is&quot;</span>
+                <span class="s2">&quot; '{}' but it is not supported&quot;</span><span class="s1">.format(bad_locale)</span>
+            <span class="s1">)</span>
+
+    <span class="s0">raise </span><span class="s1">RuntimeError(</span>
+        <span class="s2">&quot;Click will abort further execution because Python 3 was&quot;</span>
+        <span class="s2">&quot; configured to use ASCII as encoding for the environment.&quot;</span>
+        <span class="s2">&quot; Consult https://click.palletsprojects.com/python3/ for&quot;</span>
+        <span class="s2">&quot; mitigation steps.{}&quot;</span><span class="s1">.format(extra)</span>
+    <span class="s1">)</span>
+</pre>
+</body>
+</html>

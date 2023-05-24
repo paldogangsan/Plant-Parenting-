@@ -1,0 +1,362 @@
+<html>
+<head>
+<title>common_descriptors.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #0033b3;}
+.s1 { color: #080808;}
+.s2 { color: #8c8c8c; font-style: italic;}
+.s3 { color: #067d17;}
+.s4 { color: #1750eb;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+common_descriptors.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">datetime </span><span class="s0">import </span><span class="s1">datetime</span>
+<span class="s0">from </span><span class="s1">datetime </span><span class="s0">import </span><span class="s1">timedelta</span>
+
+<span class="s0">from </span><span class="s1">.._compat </span><span class="s0">import </span><span class="s1">string_types</span>
+<span class="s0">from </span><span class="s1">..datastructures </span><span class="s0">import </span><span class="s1">CallbackDict</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">dump_age</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">dump_csp_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">dump_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">dump_options_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">http_date</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_age</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_csp_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_date</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_options_header</span>
+<span class="s0">from </span><span class="s1">..http </span><span class="s0">import </span><span class="s1">parse_set_header</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">cached_property</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">environ_property</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">get_content_type</span>
+<span class="s0">from </span><span class="s1">..utils </span><span class="s0">import </span><span class="s1">header_property</span>
+<span class="s0">from </span><span class="s1">..wsgi </span><span class="s0">import </span><span class="s1">get_content_length</span>
+
+
+<span class="s0">class </span><span class="s1">CommonRequestDescriptorsMixin(object):</span>
+    <span class="s2">&quot;&quot;&quot;A mixin for :class:`BaseRequest` subclasses.  Request objects that 
+    mix this class in will automatically get descriptors for a couple of 
+    HTTP headers with automatic type conversion. 
+ 
+    .. versionadded:: 0.5 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">content_type = environ_property(</span>
+        <span class="s3">&quot;CONTENT_TYPE&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Type entity-header field indicates the media 
+        type of the entity-body sent to the recipient or, in the case of 
+        the HEAD method, the media type that would have been sent had 
+        the request been a GET.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">content_length(self):</span>
+        <span class="s2">&quot;&quot;&quot;The Content-Length entity-header field indicates the size of the 
+        entity-body in bytes or, in the case of the HEAD method, the size of 
+        the entity-body that would have been sent had the request been a 
+        GET. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">get_content_length(self.environ)</span>
+
+    <span class="s1">content_encoding = environ_property(</span>
+        <span class="s3">&quot;HTTP_CONTENT_ENCODING&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Encoding entity-header field is used as a 
+        modifier to the media-type. When present, its value indicates 
+        what additional content codings have been applied to the 
+        entity-body, and thus what decoding mechanisms must be applied 
+        in order to obtain the media-type referenced by the Content-Type 
+        header field. 
+ 
+        .. versionadded:: 0.9&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_md5 = environ_property(</span>
+        <span class="s3">&quot;HTTP_CONTENT_MD5&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-MD5 entity-header field, as defined in 
+        RFC 1864, is an MD5 digest of the entity-body for the purpose of 
+        providing an end-to-end message integrity check (MIC) of the 
+        entity-body. (Note: a MIC is good for detecting accidental 
+        modification of the entity-body in transit, but is not proof 
+        against malicious attacks.) 
+ 
+        .. versionadded:: 0.9&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">referrer = environ_property(</span>
+        <span class="s3">&quot;HTTP_REFERER&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Referer[sic] request-header field allows the client 
+        to specify, for the server's benefit, the address (URI) of the 
+        resource from which the Request-URI was obtained (the 
+        &quot;referrer&quot;, although the header field is misspelled).&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">date = environ_property(</span>
+        <span class="s3">&quot;HTTP_DATE&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_date,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Date general-header field represents the date and 
+        time at which the message was originated, having the same 
+        semantics as orig-date in RFC 822.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">max_forwards = environ_property(</span>
+        <span class="s3">&quot;HTTP_MAX_FORWARDS&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">int,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Max-Forwards request-header field provides a 
+        mechanism with the TRACE and OPTIONS methods to limit the number 
+        of proxies or gateways that can forward the request to the next 
+        inbound server.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">_parse_content_type(self):</span>
+        <span class="s0">if not </span><span class="s1">hasattr(self, </span><span class="s3">&quot;_parsed_content_type&quot;</span><span class="s1">):</span>
+            <span class="s1">self._parsed_content_type = parse_options_header(</span>
+                <span class="s1">self.environ.get(</span><span class="s3">&quot;CONTENT_TYPE&quot;</span><span class="s1">, </span><span class="s3">&quot;&quot;</span><span class="s1">)</span>
+            <span class="s1">)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">mimetype(self):</span>
+        <span class="s2">&quot;&quot;&quot;Like :attr:`content_type`, but without parameters (eg, without 
+        charset, type etc.) and always lowercase.  For example if the content 
+        type is ``text/HTML; charset=utf-8`` the mimetype would be 
+        ``'text/html'``. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self._parse_content_type()</span>
+        <span class="s0">return </span><span class="s1">self._parsed_content_type[</span><span class="s4">0</span><span class="s1">].lower()</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">mimetype_params(self):</span>
+        <span class="s2">&quot;&quot;&quot;The mimetype parameters as dict.  For example if the content 
+        type is ``text/html; charset=utf-8`` the params would be 
+        ``{'charset': 'utf-8'}``. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self._parse_content_type()</span>
+        <span class="s0">return </span><span class="s1">self._parsed_content_type[</span><span class="s4">1</span><span class="s1">]</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">pragma(self):</span>
+        <span class="s2">&quot;&quot;&quot;The Pragma general-header field is used to include 
+        implementation-specific directives that might apply to any recipient 
+        along the request/response chain.  All pragma directives specify 
+        optional behavior from the viewpoint of the protocol; however, some 
+        systems MAY require that behavior be consistent with the directives. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">parse_set_header(self.environ.get(</span><span class="s3">&quot;HTTP_PRAGMA&quot;</span><span class="s1">, </span><span class="s3">&quot;&quot;</span><span class="s1">))</span>
+
+
+<span class="s0">class </span><span class="s1">CommonResponseDescriptorsMixin(object):</span>
+    <span class="s2">&quot;&quot;&quot;A mixin for :class:`BaseResponse` subclasses.  Response objects that 
+    mix this class in will automatically get descriptors for a couple of 
+    HTTP headers with automatic type conversion. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">mimetype(self):</span>
+        <span class="s2">&quot;&quot;&quot;The mimetype (content type without charset etc.)&quot;&quot;&quot;</span>
+        <span class="s1">ct = self.headers.get(</span><span class="s3">&quot;content-type&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">ct:</span>
+            <span class="s0">return </span><span class="s1">ct.split(</span><span class="s3">&quot;;&quot;</span><span class="s1">)[</span><span class="s4">0</span><span class="s1">].strip()</span>
+
+    <span class="s1">@mimetype.setter</span>
+    <span class="s0">def </span><span class="s1">mimetype(self, value):</span>
+        <span class="s1">self.headers[</span><span class="s3">&quot;Content-Type&quot;</span><span class="s1">] = get_content_type(value, self.charset)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">mimetype_params(self):</span>
+        <span class="s2">&quot;&quot;&quot;The mimetype parameters as dict. For example if the 
+        content type is ``text/html; charset=utf-8`` the params would be 
+        ``{'charset': 'utf-8'}``. 
+ 
+        .. versionadded:: 0.5 
+        &quot;&quot;&quot;</span>
+
+        <span class="s0">def </span><span class="s1">on_update(d):</span>
+            <span class="s1">self.headers[</span><span class="s3">&quot;Content-Type&quot;</span><span class="s1">] = dump_options_header(self.mimetype, d)</span>
+
+        <span class="s1">d = parse_options_header(self.headers.get(</span><span class="s3">&quot;content-type&quot;</span><span class="s1">, </span><span class="s3">&quot;&quot;</span><span class="s1">))[</span><span class="s4">1</span><span class="s1">]</span>
+        <span class="s0">return </span><span class="s1">CallbackDict(d, on_update)</span>
+
+    <span class="s1">location = header_property(</span>
+        <span class="s3">&quot;Location&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Location response-header field is used to redirect 
+        the recipient to a location other than the Request-URI for 
+        completion of the request or identification of a new 
+        resource.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">age = header_property(</span>
+        <span class="s3">&quot;Age&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_age,</span>
+        <span class="s1">dump_age,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Age response-header field conveys the sender's 
+        estimate of the amount of time since the response (or its 
+        revalidation) was generated at the origin server. 
+ 
+        Age values are non-negative decimal integers, representing time 
+        in seconds.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_type = header_property(</span>
+        <span class="s3">&quot;Content-Type&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Type entity-header field indicates the media 
+        type of the entity-body sent to the recipient or, in the case of 
+        the HEAD method, the media type that would have been sent had 
+        the request been a GET.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_length = header_property(</span>
+        <span class="s3">&quot;Content-Length&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">int,</span>
+        <span class="s1">str,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Length entity-header field indicates the size 
+        of the entity-body, in decimal number of OCTETs, sent to the 
+        recipient or, in the case of the HEAD method, the size of the 
+        entity-body that would have been sent had the request been a 
+        GET.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_location = header_property(</span>
+        <span class="s3">&quot;Content-Location&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Location entity-header field MAY be used to 
+        supply the resource location for the entity enclosed in the 
+        message when that entity is accessible from a location separate 
+        from the requested resource's URI.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_encoding = header_property(</span>
+        <span class="s3">&quot;Content-Encoding&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Encoding entity-header field is used as a 
+        modifier to the media-type. When present, its value indicates 
+        what additional content codings have been applied to the 
+        entity-body, and thus what decoding mechanisms must be applied 
+        in order to obtain the media-type referenced by the Content-Type 
+        header field.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_md5 = header_property(</span>
+        <span class="s3">&quot;Content-MD5&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-MD5 entity-header field, as defined in 
+        RFC 1864, is an MD5 digest of the entity-body for the purpose of 
+        providing an end-to-end message integrity check (MIC) of the 
+        entity-body. (Note: a MIC is good for detecting accidental 
+        modification of the entity-body in transit, but is not proof 
+        against malicious attacks.)&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_security_policy = header_property(</span>
+        <span class="s3">&quot;Content-Security-Policy&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_csp_header,</span>
+        <span class="s1">dump_csp_header,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Security-Policy header adds an additional layer of 
+        security to help detect and mitigate certain types of attacks.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_security_policy_report_only = header_property(</span>
+        <span class="s3">&quot;Content-Security-Policy-Report-Only&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_csp_header,</span>
+        <span class="s1">dump_csp_header,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Security-Policy-Report-Only header adds a csp policy 
+        that is not enforced but is reported thereby helping detect 
+        certain types of attacks.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">date = header_property(</span>
+        <span class="s3">&quot;Date&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_date,</span>
+        <span class="s1">http_date,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Date general-header field represents the date and 
+        time at which the message was originated, having the same 
+        semantics as orig-date in RFC 822.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">expires = header_property(</span>
+        <span class="s3">&quot;Expires&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_date,</span>
+        <span class="s1">http_date,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Expires entity-header field gives the date/time after 
+        which the response is considered stale. A stale cache entry may 
+        not normally be returned by a cache.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">last_modified = header_property(</span>
+        <span class="s3">&quot;Last-Modified&quot;</span><span class="s1">,</span>
+        <span class="s0">None</span><span class="s1">,</span>
+        <span class="s1">parse_date,</span>
+        <span class="s1">http_date,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Last-Modified entity-header field indicates the date 
+        and time at which the origin server believes the variant was 
+        last modified.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">retry_after(self):</span>
+        <span class="s2">&quot;&quot;&quot;The Retry-After response-header field can be used with a 
+        503 (Service Unavailable) response to indicate how long the 
+        service is expected to be unavailable to the requesting client. 
+ 
+        Time in seconds until expiration or date. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">value = self.headers.get(</span><span class="s3">&quot;retry-after&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">value </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return</span>
+        <span class="s0">elif </span><span class="s1">value.isdigit():</span>
+            <span class="s0">return </span><span class="s1">datetime.utcnow() + timedelta(seconds=int(value))</span>
+        <span class="s0">return </span><span class="s1">parse_date(value)</span>
+
+    <span class="s1">@retry_after.setter</span>
+    <span class="s0">def </span><span class="s1">retry_after(self, value):</span>
+        <span class="s0">if </span><span class="s1">value </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s3">&quot;retry-after&quot; </span><span class="s0">in </span><span class="s1">self.headers:</span>
+                <span class="s0">del </span><span class="s1">self.headers[</span><span class="s3">&quot;retry-after&quot;</span><span class="s1">]</span>
+            <span class="s0">return</span>
+        <span class="s0">elif </span><span class="s1">isinstance(value, datetime):</span>
+            <span class="s1">value = http_date(value)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">value = str(value)</span>
+        <span class="s1">self.headers[</span><span class="s3">&quot;Retry-After&quot;</span><span class="s1">] = value</span>
+
+    <span class="s0">def </span><span class="s1">_set_property(name, doc=</span><span class="s0">None</span><span class="s1">):  </span><span class="s2"># noqa: B902</span>
+        <span class="s0">def </span><span class="s1">fget(self):</span>
+            <span class="s0">def </span><span class="s1">on_update(header_set):</span>
+                <span class="s0">if not </span><span class="s1">header_set </span><span class="s0">and </span><span class="s1">name </span><span class="s0">in </span><span class="s1">self.headers:</span>
+                    <span class="s0">del </span><span class="s1">self.headers[name]</span>
+                <span class="s0">elif </span><span class="s1">header_set:</span>
+                    <span class="s1">self.headers[name] = header_set.to_header()</span>
+
+            <span class="s0">return </span><span class="s1">parse_set_header(self.headers.get(name), on_update)</span>
+
+        <span class="s0">def </span><span class="s1">fset(self, value):</span>
+            <span class="s0">if not </span><span class="s1">value:</span>
+                <span class="s0">del </span><span class="s1">self.headers[name]</span>
+            <span class="s0">elif </span><span class="s1">isinstance(value, string_types):</span>
+                <span class="s1">self.headers[name] = value</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">self.headers[name] = dump_header(value)</span>
+
+        <span class="s0">return </span><span class="s1">property(fget, fset, doc=doc)</span>
+
+    <span class="s1">vary = _set_property(</span>
+        <span class="s3">&quot;Vary&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Vary field value indicates the set of request-header 
+        fields that fully determines, while the response is fresh, 
+        whether a cache is permitted to use the response to reply to a 
+        subsequent request without revalidation.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">content_language = _set_property(</span>
+        <span class="s3">&quot;Content-Language&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Content-Language entity-header field describes the 
+        natural language(s) of the intended audience for the enclosed 
+        entity. Note that this might not be equivalent to all the 
+        languages used within the entity-body.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+    <span class="s1">allow = _set_property(</span>
+        <span class="s3">&quot;Allow&quot;</span><span class="s1">,</span>
+        <span class="s1">doc=</span><span class="s3">&quot;&quot;&quot;The Allow entity-header field lists the set of methods 
+        supported by the resource identified by the Request-URI. The 
+        purpose of this field is strictly to inform the recipient of 
+        valid methods associated with the resource. An Allow header 
+        field MUST be present in a 405 (Method Not Allowed) 
+        response.&quot;&quot;&quot;</span><span class="s1">,</span>
+    <span class="s1">)</span>
+
+    <span class="s0">del </span><span class="s1">_set_property</span>
+</pre>
+</body>
+</html>
